@@ -31,11 +31,16 @@ export class Minimap {
     return im.complete && im.naturalWidth > 0 ? im : null
   }
 
-  drawMinimap(c: CanvasRenderingContext2D, size: number) {
-    const w = this.w
+  /** Static map art (ground, river, forest, lanes, vignette) rendered once per minimap size. */
+  private bg: HTMLCanvasElement | null = null
+  private bgKey = ''
+  private background(size: number) {
+    const key = `${size}|${!!this.groundImg}`
+    if (this.bg && this.bgKey === key) return this.bg
+    const cv = document.createElement('canvas')
+    cv.width = cv.height = size
+    const c = cv.getContext('2d')!
     const s = size / MAP
-    c.setTransform(1, 0, 0, 1, 0, 0)
-    c.clearRect(0, 0, size, size)
     c.lineJoin = 'round'
     c.lineCap = 'round'
     const stroke = (pts: Pt[], wd: number, col: string) => {
@@ -75,6 +80,26 @@ export class Minimap {
       stroke(RIVER, 11, '#2b6a8a')
       for (const lane of LANES) stroke(PATHS[0][lane].pts, 6, '#7c6a45')
     }
+    this.bg = cv
+    this.bgKey = key
+    return cv
+  }
+
+  drawMinimap(c: CanvasRenderingContext2D, size: number) {
+    const w = this.w
+    const s = size / MAP
+    c.setTransform(1, 0, 0, 1, 0, 0)
+    c.clearRect(0, 0, size, size)
+    c.lineJoin = 'round'
+    c.lineCap = 'round'
+    const stroke = (pts: Pt[], wd: number, col: string) => {
+      c.beginPath()
+      pts.forEach((p, i) => (i ? c.lineTo(p.x * s, p.y * s) : c.moveTo(p.x * s, p.y * s)))
+      c.strokeStyle = col
+      c.lineWidth = wd
+      c.stroke()
+    }
+    c.drawImage(this.background(size), 0, 0)
     for (const u of w.units) {
       if (u.dead || u.kind === 'fountain') continue
       if (!w.isVisible(this.myTeam, u)) continue

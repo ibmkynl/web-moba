@@ -298,8 +298,26 @@ export class Renderer3D {
     return best ?? g
   }
 
+  private scratch = new THREE.Vector3()
+  private litNight: boolean | null = null
+  /** cached screen vignette (rebuilt when the viewport changes) */
+  private vignette: { key: string; g: CanvasGradient } | null = null
+  /** soft-edged disc punched out of the fog layer for each vision source */
+  private punchImg = (() => {
+    const cv = document.createElement('canvas')
+    cv.width = cv.height = 128
+    const c = cv.getContext('2d')!
+    const g = c.createRadialGradient(64, 64, 64 * 0.78, 64, 64, 64)
+    g.addColorStop(0, 'rgba(0,0,0,1)')
+    g.addColorStop(1, 'rgba(0,0,0,0)')
+    c.fillStyle = g
+    c.beginPath()
+    c.arc(64, 64, 64, 0, Math.PI * 2)
+    c.fill()
+    return cv
+  })()
   toScreen(wx: number, wy: number, h = 0): Pt {
-    const v = new THREE.Vector3(wx, h, wy).project(this.camera)
+    const v = this.scratch.set(wx, h, wy).project(this.camera)
     // points behind the camera (or past the far plane) project mirrored onto the screen: push them far off instead,
     // otherwise they could be clicked, hovered or get ghost health bars
     if (v.z > 1 || v.z < -1) return { x: -1e5, y: -1e5 }
@@ -762,13 +780,16 @@ export class Renderer3D {
     this.updateAffine()
     // lighting follows the camera target, tinted at night
     const night = w.nightAmount()
-    const d = new THREE.Vector3(-900, 1700, 900)
-    this.sun.position.set(this.cam.x + d.x, d.y, this.cam.y + d.z)
+    this.sun.position.set(this.cam.x - 900, 1700, this.cam.y + 900)
     this.sun.target.position.set(this.cam.x, 0, this.cam.y)
     this.sun.intensity = 2.1 - 0.7 * night
-    this.sun.color.set(night > 0.5 ? '#a8bcff' : '#fff0d0')
     this.hemi.intensity = 1.15 - 0.2 * night
-    this.hemi.color.set(night > 0.5 ? '#8a9ae0' : '#c8d8ff')
+    const isNight = night > 0.5
+    if (isNight !== this.litNight) {
+      this.litNight = isNight
+      this.sun.color.set(isNight ? '#a8bcff' : '#fff0d0')
+      this.hemi.color.set(isNight ? '#8a9ae0' : '#c8d8ff')
+    }
     this.syncUnits()
     this.syncWards()
     this.syncRunes()
@@ -1008,10 +1029,14 @@ export class Renderer3D {
       c.fillStyle = `rgba(30,50,140,${0.07 * night})`
       c.fillRect(0, 0, this.W, this.H)
     }
-    const g = c.createRadialGradient(this.W / 2, this.H / 2, Math.min(this.W, this.H) * 0.5, this.W / 2, this.H / 2, Math.max(this.W, this.H) * 0.8)
-    g.addColorStop(0, 'rgba(0,0,0,0)')
-    g.addColorStop(1, 'rgba(0,0,0,0.15)')
-    c.fillStyle = g
+    const vk = `${this.W}x${this.H}`
+    if (!this.vignette || this.vignette.key !== vk) {
+      const g = c.createRadialGradient(this.W / 2, this.H / 2, Math.min(this.W, this.H) * 0.5, this.W / 2, this.H / 2, Math.max(this.W, this.H) * 0.8)
+      g.addColorStop(0, 'rgba(0,0,0,0)')
+      g.addColorStop(1, 'rgba(0,0,0,0.15)')
+      this.vignette = { key: vk, g }
+    }
+    c.fillStyle = this.vignette.g
     c.fillRect(0, 0, this.W, this.H)
   }
 
@@ -1044,17 +1069,7 @@ export class Renderer3D {
       const rx = Math.abs(e.x - s.x) * k
       const ry = Math.abs(s.y - n.y) * k
       if (!isFinite(rx) || rx < 2) return
-      fctx.save()
-      fctx.translate(s.x * k, s.y * k)
-      fctx.scale(1, ry / rx)
-      const g = fctx.createRadialGradient(0, 0, rx * 0.78, 0, 0, rx)
-      g.addColorStop(0, 'rgba(0,0,0,1)')
-      g.addColorStop(1, 'rgba(0,0,0,0)')
-      fctx.fillStyle = g
-      fctx.beginPath()
-      fctx.arc(0, 0, rx, 0, Math.PI * 2)
-      fctx.fill()
-      fctx.restore()
+      fctx.drawImage(this.punchImg, s.x * k - rx, s.y * k - ry, rx * 2, ry * 2)
     }
     for (const u of w.units) if (u.team === this.myTeam && !u.dead) punch(u.x, u.y, w.visionOf(u))
     for (const z of w.zones) if (z.reveal && z.team === this.myTeam && w.time >= z.start) punch(z.x, z.y, z.r + 100)

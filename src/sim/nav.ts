@@ -83,6 +83,47 @@ function nearestOpen(p: Pt): Pt | null {
   return null
 }
 
+/* A* scratch space, reused by every search: a stamp marks which entries belong to the current search */
+const gScore = new Float32Array(N * N)
+const came = new Int32Array(N * N)
+const seen = new Uint32Array(N * N)
+const shut = new Uint32Array(N * N)
+let stamp = 0
+/** binary min-heap of cell indices keyed by f */
+const heapI = new Int32Array(N * N * 8) // each cell can be re-pushed when its score improves (at most once per neighbour)
+const heapF = new Float32Array(N * N * 8)
+let heapN = 0
+function heapPush(i: number, f: number) {
+  let k = heapN++
+  while (k > 0) {
+    const p = (k - 1) >> 1
+    if (heapF[p] <= f) break
+    heapI[k] = heapI[p]
+    heapF[k] = heapF[p]
+    k = p
+  }
+  heapI[k] = i
+  heapF[k] = f
+}
+function heapPop(): number {
+  const top = heapI[0]
+  const li = heapI[--heapN]
+  const lf = heapF[heapN]
+  let k = 0
+  for (;;) {
+    let c = 2 * k + 1
+    if (c >= heapN) break
+    if (c + 1 < heapN && heapF[c + 1] < heapF[c]) c++
+    if (heapF[c] >= lf) break
+    heapI[k] = heapI[c]
+    heapF[k] = heapF[c]
+    k = c
+  }
+  heapI[k] = li
+  heapF[k] = lf
+  return top
+}
+
 /** A* over the grid; returns smoothed waypoints from a (exclusive) to b (inclusive), or null when unreachable. */
 function findPath(a: Pt, b: Pt): Pt[] | null {
   const start = nearestOpen(a)
@@ -92,28 +133,25 @@ function findPath(a: Pt, b: Pt): Pt[] | null {
   const g = cellOf(goal)
   const si = s.gy * N + s.gx
   const gi = g.gy * N + g.gx
-  const gScore = new Map<number, number>([[si, 0]])
-  const came = new Map<number, number>()
-  const open: { i: number; f: number }[] = [{ i: si, f: 0 }]
-  const closed = new Set<number>()
+  stamp++
+  heapN = 0
+  gScore[si] = 0
+  seen[si] = stamp
+  came[si] = -1
+  heapPush(si, 0)
   const hh = (i: number) => Math.hypot((i % N) - g.gx, Math.floor(i / N) - g.gy)
   let found = false
   let guard = 0
-  while (open.length && guard++ < 20000) {
-    // pop the lowest f (open list stays small enough for a linear scan on this grid)
-    let bi = 0
-    for (let k = 1; k < open.length; k++) if (open[k].f < open[bi].f) bi = k
-    const cur = open[bi]
-    open[bi] = open[open.length - 1]
-    open.pop()
-    if (closed.has(cur.i)) continue
-    closed.add(cur.i)
-    if (cur.i === gi) {
+  while (heapN && guard++ < 20000) {
+    const cur = heapPop()
+    if (shut[cur] === stamp) continue
+    shut[cur] = stamp
+    if (cur === gi) {
       found = true
       break
     }
-    const cx = cur.i % N
-    const cy = Math.floor(cur.i / N)
+    const cx = cur % N
+    const cy = Math.floor(cur / N)
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
         if (!dx && !dy) continue
@@ -123,19 +161,20 @@ function findPath(a: Pt, b: Pt): Pt[] | null {
         // no corner cutting
         if (dx && dy && (isBlocked(cx + dx, cy) || isBlocked(cx, cy + dy))) continue
         const ni = ny * N + nx
-        if (closed.has(ni)) continue
-        const ng = (gScore.get(cur.i) || 0) + (dx && dy ? 1.414 : 1)
-        if (ng < (gScore.get(ni) ?? Infinity)) {
-          gScore.set(ni, ng)
-          came.set(ni, cur.i)
-          open.push({ i: ni, f: ng + hh(ni) })
+        if (shut[ni] === stamp) continue
+        const ng = gScore[cur] + (dx && dy ? 1.414 : 1)
+        if (seen[ni] !== stamp || ng < gScore[ni]) {
+          seen[ni] = stamp
+          gScore[ni] = ng
+          came[ni] = cur
+          heapPush(ni, ng + hh(ni))
         }
       }
     }
   }
   if (!found) return null
   const cells: Pt[] = []
-  for (let c = gi; c !== undefined; c = came.get(c) as number) {
+  for (let c = gi; c >= 0; c = came[c]) {
     cells.push({ x: (c % N) * CELL + CELL / 2, y: Math.floor(c / N) * CELL + CELL / 2 })
     if (c === si) break
   }
@@ -161,21 +200,38 @@ interface NavCache {
   gy: number
   at: number
   path: Pt[]
+  /** A* found no route: wait for the retry interval instead of searching again every tick */
+  none: boolean
 }
+/** Last line-of-sight answer per unit, valid while both ends stay in the same grid cells. */
+interface LosCache {
+  a: number
+  b: number
+  clear: boolean
+}
+
+const cellKey = (p: Pt) => Math.floor(p.y / CELL) * N + Math.floor(p.x / CELL)
 
 /**
  * Next waypoint on the way from a to b when something solid is in the way, or null when the straight line is clear.
- * `cache` (per unit) avoids re-running A* every tick.
+ * `cache` (per unit) avoids re-running A* and the line-of-sight walk every tick.
  */
-export function navWaypoint(a: Pt, b: Pt, cache?: { nav?: NavCache }, now = 0): Pt | null {
-  if (lineClear(a, b)) {
+export function navWaypoint(a: Pt, b: Pt, cache?: { nav?: NavCache; los?: LosCache }, now = 0): Pt | null {
+  const ak = cellKey(a)
+  const bk = cellKey(b)
+  let los = cache?.los
+  if (!los || los.a !== ak || los.b !== bk) {
+    los = { a: ak, b: bk, clear: lineClear(a, b) }
+    if (cache) cache.los = los
+  }
+  if (los.clear) {
     if (cache) cache.nav = undefined
     return null
   }
   let nc = cache?.nav
-  if (!nc || Math.hypot(nc.gx - b.x, nc.gy - b.y) > 60 || now - nc.at > 1.2 || nc.path.length === 0) {
-    const path = findPath(a, b) || []
-    nc = { gx: b.x, gy: b.y, at: now, path }
+  if (!nc || Math.hypot(nc.gx - b.x, nc.gy - b.y) > 60 || now - nc.at > 1.2 || (nc.path.length === 0 && !nc.none)) {
+    const path = findPath(a, b)
+    nc = { gx: b.x, gy: b.y, at: now, path: path || [], none: !path }
     if (cache) cache.nav = nc
   }
   while (nc.path.length && Math.hypot(nc.path[0].x - a.x, nc.path[0].y - a.y) < 50) nc.path.shift()
