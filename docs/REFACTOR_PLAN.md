@@ -141,3 +141,24 @@ After every phase: `npm run typecheck`. After Phases 1, 4, 5 and 6: re-measure w
 - No one has run the CR bugs, checked background-tab behaviour in networked play, or tested whether click feedback already exists.
 - The teamfight benchmark is a scripted worst case, not an average match.
 - BP's sources disagree on Safari's WebTransport support. That only matters if the out-of-scope transport work is ever picked up.
+
+## Status (2026-10-24)
+
+All phases were implemented on branch `refactor/combined-plan`, one commit per logical change. Measured results are in
+[PERFORMANCE.md](PERFORMANCE.md#results-after-the-refactor-2026-10-24-branch-refactorcombined-plan).
+
+| Phase | Status | Notes |
+|---|---|---|
+| 0 Baseline | done | bench files committed; `bench/render-bench.js` added for repeatable render runs |
+| 1a Correctness and security | done | all 8 items; verified with two LAN clients (escaped names, seatless `busy`) |
+| 1b Render quick wins | done | MSAA later replaced by FXAA (see below) |
+| 1c Network quick wins | done | deflate on; buffered interpolation uses the existing `t`; click markers already existed |
+| 2 Multiplayer perspective | done | headless check: each team gets its own wording/tone; `World.player` kept as the client's viewed hero, unused by the sim |
+| 3 Dedupe and dead code | done | `noUnusedLocals` now on |
+| 4 Render restructure | done | merging plus rigid skinning instead of creep instancing (draw calls already in budget) |
+| 5 Snapshot v2 and reconnect | done | JSON deltas, not binary (1.1 KB per message made binary unnecessary); resume verified live and after reload |
+| 6 Sim/UI hygiene | done, partly by choice | A*, LOS cache, minimap/overlay/HUD caches, vendor chunks. Not done: recalc dirty flags, idle-acquire throttling, spatial grid (sim is ~1% of a frame) |
+| 7 Structural | done except file regrouping | `aim`/`onKill`/etc. fields, typed Unit fields + NET_KEYS, `World.displace`, `WorldView`, duplicate-id registries, split `kill`/`useItem`/`botAI`. The g1..g4 files were not regrouped by theme: sim and render must stay in separate import graphs, so a per-hero module would still be two files |
+
+Found during measurement: 4x MSAA on the composer's render targets made every post pass pay MSAA cost
+(~41 ms GPU at 2x DPR with bloom). Medium and High now use FXAA instead.

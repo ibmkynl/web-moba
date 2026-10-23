@@ -87,3 +87,39 @@ Each step lists its own verification so regressions are caught by the probe.
 - The teamfight is scripted (all heroes teleported to mid at max level), so it is a worst case, not an average.
 - GPU time comes from `EXT_disjoint_timer_query_webgl2`; CPU render time is the time inside `composer.render()`. Draw-call counts include the shadow pass.
 - Not tested: Firefox/Safari, real network latency, mobile.
+
+## Results after the refactor (2026-10-24, branch refactor/combined-plan)
+
+Same machine (M1 Pro), same browser pane, 1024x768 viewport, same fixed lineup (`bench/render-bench.js`). The
+baseline was served from a worktree of commit 73906dc and measured in the same session, interleaved with the new
+build, because GPU timings on this machine drift by 2-5x with power and thermal state. "Driven" rows render frames
+back to back without requestAnimationFrame (`__probe.drive`); the frame-time row is real rAF timing with the pane
+visible.
+
+| Metric | Baseline | After | Target |
+|---|---|---|---|
+| Teamfight draw calls (mean / max), 1x | 3.1k / 4.0k | 640 / 1.2k | < 800 / < 1.2k |
+| Teamfight CPU render, 1x High (mean / p95) | 10.2 / 13.3 ms | 5.8 / 9.7 ms | < 4 / < 6 ms |
+| Teamfight CPU render, 1x Medium (mean / p95) | n/a | 4.6 / 8.0 ms | |
+| Teamfight, 2x DPR, interleaved runs: CPU render p50 | 19-30 ms | 3.7-5.0 ms (Medium), 3.9-4.3 ms (High) | |
+| Teamfight, 2x DPR, interleaved runs: GPU p50 | 17-25 ms | 3.2-4.8 ms (Medium), ~5 ms (High) | < 7 ms |
+| Teamfight real frame time at 2x, rAF (mean / p95) | 28.1 / 41.7 ms (~36 fps) | 8.5 / 9.3 ms (120 Hz display cap) | < 10 ms p95 |
+| Triangles submitted (fight) | 1.87M | 0.54M | |
+| Geometries over 8 sim-minutes | 2,641 -> 6,197 | 251-341, flat | flat |
+| Snapshot per client per message | 30-34 KB | 1.1-1.3 KB (0.5 KB deflated) | < 8 KB |
+| Snapshot bandwidth per client | ~610-680 KiB/s | ~9-11 KiB/s | |
+| Sim tick (20 min, headless) | 0.184 ms mean, 49 ticks > 4 ms | 0.17-0.18 ms mean, 2 ticks > 4 ms | |
+| A*, 300 long routes | 410 ms | 102 ms | |
+| HUD update / minimap per call | 0.46 / 0.39 ms | 0.13 / 0.08 ms | |
+| JS (gzip) | 379 KB, one chunk | 379 KB in game / three / quarks chunks | |
+
+What moved the numbers, biggest first:
+1. Model merging plus rigid skinning (`src/render/modelopt.ts`): hero 124 -> ~10 meshes, creep 19 -> ~3, courier 40 -> 9.
+2. Composer MSAA replaced by FXAA. At 2x DPR, 4x MSAA on the composer targets plus bloom cost ~41 ms GPU. This was
+   the main reason the baseline was slow on retina displays.
+3. Shadow casters limited to heroes, towers, ancients, couriers and the fountain; props split into cullable tiles.
+4. Dispose on removal, shared projectile and effect geometry (fixes the GPU memory growth).
+5. Default Medium preset (DPR 1.5, half-resolution bloom).
+
+Still above target: 1x CPU render in a fight is ~5-6 ms mean (target < 4). About 40% of remaining calls in a fight are short-lived effect
+meshes (rings, beams, auras) rather than units; batching those is the next step if it matters.
