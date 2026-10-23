@@ -366,7 +366,6 @@ function lateShopping(w: World, u: Unit, b: Brain) {
   }
 }
 
-/** Friendly tower or ancient closest to a point (teleport destination). */
 /** Bots teleport like the player: home to heal, back out to the front, or to defend a threatened tower. */
 function botTeleport(w: World, u: Unit, b: Brain, ord: { kind: string; x: number; y: number } | null, hpPct: number, enemies: Unit[], home: Pt) {
   const h = u.h!

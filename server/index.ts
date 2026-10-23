@@ -14,7 +14,7 @@ import { randomBytes } from 'node:crypto'
 const PORT = Number(process.env.PORT || 8080)
 const SNAP_EVERY = 3 // ticks per snapshot (20 Hz)
 const COUNTDOWN_MS = 5000
-/** How long a disconnected player's hero waits (bot-controlled) for them to resume. */
+/** How long a disconnected player's hero waits (bot-controlled) for them to resume. Only applies while another human keeps the match running: when everyone has left it ends after 30 s. */
 const RESUME_MS = 120000
 const DIST = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
@@ -287,6 +287,7 @@ function resume(p: Player, token: string) {
   p.token = token
   if (seats[a.seat]) seats[a.seat].pid = p.pid
   a.hero.h.isHuman = true
+  a.hero.noAuto = false // set while a bot drove the hero; a person's hero auto-attacks when idle
   heroOf.set(p.pid, a.hero)
   p.enc.reset()
   send(p.ws, { t: 'start', seat: a.seat, team: a.hero.team, hero: a.hero.h.def.id, resume: 1 })
@@ -429,7 +430,11 @@ wss.on('connection', (ws) => {
         hero.h.isHuman = false
         hero.noAuto = true
         world.autoLevel(hero)
-        if (phase === 'playing') away.set(p.token, { hero, seat: p.seat, name: p.name, at: Date.now() })
+        if (phase === 'playing') {
+          const now = Date.now()
+          for (const [tok, a] of away) if (now - a.at > RESUME_MS) away.delete(tok)
+          away.set(p.token, { hero, seat: p.seat, name: p.name, at: now })
+        }
       }
       heroOf.delete(p.pid)
     }

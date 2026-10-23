@@ -135,8 +135,6 @@ export interface Pick {
   human?: boolean
 }
 
-/** Fair (Fisher-Yates) shuffle. */
-
 export interface WorldCfg {
   playerHero: string
   playerLane: Lane
@@ -522,7 +520,6 @@ export class World implements WorldView {
     if (this.vfxQ.length > 160) this.vfxQ.shift()
   }
 
-  /** Legacy effect helper: ring/line/meteor become real 3D effects, text stays a floating label. */
   /**
    * The one way a spawned unit moves (walking, knockback, blinks, collision): buildings never move, everything
    * stays on the map and out of cliff walls and solid obstacles (couriers fly over them).
