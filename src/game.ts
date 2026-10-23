@@ -390,7 +390,8 @@ export class Game {
       case 'KeyA':
         this.targeting = { kind: 'amove' }
         break
-      case 'KeyS':
+      case 'Space':
+        e.preventDefault()
         this.api.stop()
         this.moveGoal = null
         this.targeting = null
@@ -399,8 +400,7 @@ export class Game {
         this.api.hold()
         this.moveGoal = null
         break
-      case 'Space':
-        e.preventDefault()
+      case 'Quote':
         this.camLocked = true
         this.renderer.cam = { x: p.x, y: p.y }
         break
@@ -408,7 +408,7 @@ export class Game {
         this.camLocked = !this.camLocked
         this.hud.toast(this.camLocked ? 'Camera locked to hero' : 'Camera free — edge scroll / arrows')
         break
-      case 'KeyO':
+      case 'KeyS':
       case 'F4':
         e.preventDefault()
         this.hud.toggleShop()

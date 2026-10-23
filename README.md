@@ -242,15 +242,15 @@ Choose a hero and a lane in the Dota-style hero picker. Heroes are grouped by St
 |---|---|
 | **Right click** | Move / attack / follow. On an allied creep below 50% HP: deny it |
 | **A** + click | Attack-move |
-| **S** / **H** | Stop / hold position |
+| **Space** / **H** | Stop / hold position |
 | **Q W E R** (and **D**) | Select an ability, then **click** the target or spot (**Esc** or right-click cancels). **M** toggles quick-cast |
 | **Alt + Q/W/E/R** (or Ctrl) | Level up that ability (or click the **+** above it) |
 | **Z X C V B N** | Use inventory slots 1–6 |
 | **T** | Teleport: pick a friendly tower or the Ancient (**T** twice = Ancient). Uses a scroll from the separate scroll stash |
-| **O** | Open the shop (at your fountain) |
+| **S** | Open the shop (at your fountain) |
 | **Right click** an item in the shop | **Buy** it (left-click only shows the tooltip) |
 | **Right click** an inventory item | Sell it (at the fountain) |
-| **Space** / **L** | Center camera / lock or free the camera |
+| **'** / **L** | Center camera / lock or free the camera |
 | Mouse at the screen edge, arrow keys, left-drag | Move the camera (edge scrolling also works over the top bar) |
 | Click a hero portrait in the top bar | Jump the camera to that hero (only if they are visible; hidden enemies are not revealed) |
 | **Tab** (hold) | Scoreboard: K/D/A, last hits, net worth, GPM/XPM, damage, items, ping, bot/player |

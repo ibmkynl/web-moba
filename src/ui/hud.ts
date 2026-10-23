@@ -124,7 +124,7 @@ export class Hud {
             .map((i) => `<div class="item" data-i="${i}"><span class="glyph"></span><div class="cd"></div><span class="chg"></span><span class="key">${ITEM_KEYS[i]}</span></div>`)
             .join('')}
             <div class="goldbox"><span class="coin"></span><b id="gold">0</b></div>
-            <button class="shopbtn" id="b-shop">Shop <kbd>O</kbd></button>
+            <button class="shopbtn" id="b-shop">Shop <kbd>S</kbd></button>
           </div>
         </div>
       </div>
@@ -143,11 +143,11 @@ export class Hud {
         <h3>Controls</h3>
         <div class="cols">
           <div><kbd>Right click</kbd> move / attack / <b>deny</b> allied creep (&lt;50% HP)</div>
-          <div><kbd>A</kbd> + click attack-move &nbsp; <kbd>S</kbd> stop &nbsp; <kbd>H</kbd> hold</div>
+          <div><kbd>A</kbd> + click attack-move &nbsp; <kbd>Space</kbd> stop &nbsp; <kbd>H</kbd> hold</div>
           <div><kbd>Q</kbd><kbd>W</kbd><kbd>E</kbd><kbd>R</kbd><kbd>D</kbd> abilities: press the key, then <b>click</b> the target or spot (<kbd>Esc</kbd>/right-click cancels; <kbd>M</kbd> = quick cast)</div>
           <div><kbd>Alt</kbd>+<kbd>Q/W/E/R</kbd> (or Ctrl) or click <b>+</b> to level up</div>
-          <div><kbd>Z X C V B N</kbd> items &nbsp; <kbd>O</kbd> shop (at your fountain)</div>
-          <div><kbd>Space</kbd> center camera &nbsp; <kbd>L</kbd> lock/free camera</div>
+          <div><kbd>Z X C V B N</kbd> items &nbsp; <kbd>S</kbd> shop (at your fountain)</div>
+          <div><kbd>'</kbd> center camera &nbsp; <kbd>L</kbd> lock/free camera</div>
           <div><kbd>Tab</kbd> scoreboard &nbsp; <kbd>P</kbd> pause &nbsp; <kbd>Esc</kbd> cancel</div>
         </div>
         <button id="help-close">Close</button>
