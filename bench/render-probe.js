@@ -87,6 +87,59 @@
     }
   }
 
+  /** Renders `n` frames back to back (one 1/60 s sim tick each) without waiting for requestAnimationFrame,
+   *  so the numbers do not depend on the tab being visible. */
+  const drive = async (label, n = 240) => {
+    const was = g.paused
+    g.paused = true
+    for (const k in frames) frames[k].length = 0
+    for (let i = 0; i < n; i++) {
+      w.tick(1 / 60)
+      R.draw(g.overlay())
+      if (i % 30 === 29) await sleep(0)
+    }
+    await sleep(300)
+    poll()
+    g.paused = was
+    const cut = (a) => a.slice(5)
+    return {
+      label,
+      cpuRenderMs: st(cut(frames.cpu)),
+      drawFnMs: st(cut(frames.draw)),
+      gpuMs: ext ? st(cut(frames.gpu)) : 'timer query unsupported',
+      drawCalls: st(cut(frames.calls)),
+      trianglesK: st(cut(frames.tris).map((x) => x / 1000)),
+      units: w.units.length,
+      geometries: R.gl.info.memory.geometries,
+    }
+  }
+
+  const stageFight = () => {
+    for (const h of w.heroes) {
+      w.addXp(h, 1e9)
+      w.autoLevel(h)
+      w.recalc(h)
+      h.dead = false
+      h.hp = h.st.maxHp * 5
+      h.mana = h.st.maxMana
+      h.buffs = []
+    }
+    let i = 0
+    for (const h of w.heroes) {
+      const a = (i++ / w.heroes.length) * 6.283
+      h.x = 4800 + (h.team ? 260 : -260) + Math.cos(a) * 90
+      h.y = 4800 + Math.sin(a) * 160
+      h.order = { t: 'idle' }
+    }
+    g.camLocked = false
+    R.cam.x = 4800
+    R.cam.y = 4800
+  }
+  const driveFight = (n = 600) => {
+    stageFight()
+    return drive('teamfight @ mid (driven)', n)
+  }
+
   const teamfight = async (ms = 15000) => {
     for (const h of w.heroes) {
       w.addXp(h, 1e9)
@@ -127,6 +180,6 @@
     return rows
   }
 
-  window.__probe = { run, teamfight, leak, frames }
+  window.__probe = { run, drive, driveFight, teamfight, leak, frames }
   return 'probe ready'
 })()

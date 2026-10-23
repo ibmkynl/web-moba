@@ -67,25 +67,36 @@ interface Item {
   c?: THREE.Color
 }
 
+/** World units per instancing tile: props are split into tiles so the camera and shadow frustums can cull them. */
+const PROP_TILE = 2400
+
 function instanced(scene: THREE.Scene, geo: THREE.BufferGeometry, mat: THREE.Material, items: Item[], shadow = true) {
-  if (!items.length) return null
-  const m = new THREE.InstancedMesh(geo, mat, items.length)
+  const tiles = new Map<string, Item[]>()
+  for (const it of items) {
+    const key = `${Math.floor(it.x / PROP_TILE)},${Math.floor(it.z / PROP_TILE)}`
+    let list = tiles.get(key)
+    if (!list) tiles.set(key, (list = []))
+    list.push(it)
+  }
   const m4 = new THREE.Matrix4()
   const q = new THREE.Quaternion()
   const e = new THREE.Euler()
   const v = new THREE.Vector3()
   const s = new THREE.Vector3()
-  items.forEach((it, i) => {
-    e.set(it.rx ?? 0, it.ry, it.rz ?? 0)
-    q.setFromEuler(e)
-    m4.compose(v.set(it.x, it.y, it.z), q, s.set(it.sx, it.sy, it.sz))
-    m.setMatrixAt(i, m4)
-    if (it.c) m.setColorAt(i, it.c)
-  })
-  m.castShadow = shadow
-  m.receiveShadow = false
-  scene.add(m)
-  return m
+  for (const list of tiles.values()) {
+    const m = new THREE.InstancedMesh(geo, mat, list.length)
+    list.forEach((it, i) => {
+      e.set(it.rx ?? 0, it.ry, it.rz ?? 0)
+      q.setFromEuler(e)
+      m4.compose(v.set(it.x, it.y, it.z), q, s.set(it.sx, it.sy, it.sz))
+      m.setMatrixAt(i, m4)
+      if (it.c) m.setColorAt(i, it.c)
+    })
+    m.computeBoundingSphere()
+    m.castShadow = shadow
+    m.receiveShadow = false
+    scene.add(m)
+  }
 }
 
 const hash3 = (x: number, y: number, z: number, seed = 0) => {

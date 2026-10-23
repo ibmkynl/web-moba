@@ -16,6 +16,57 @@ import { buildNeutral } from './neutrals3d'
 import { Model, buildAncient, buildCreep, buildFountain, buildHero, buildTower } from './models'
 
 const PITCH = (58 * Math.PI) / 180
+export type Quality = 'low' | 'medium' | 'high'
+export const QUALITIES: Quality[] = ['low', 'medium', 'high']
+/** dpr: pixel-ratio cap; samples: MSAA on the post-processing target; bloom: bloom resolution scale (0 = off) */
+const QUALITY_CFG: Record<Quality, { dpr: number; samples: number; bloom: number; shadowMap: number }> = {
+  low: { dpr: 1, samples: 0, bloom: 0, shadowMap: 1024 },
+  medium: { dpr: 1.5, samples: 2, bloom: 0.5, shadowMap: 2048 },
+  high: { dpr: 2, samples: 4, bloom: 1, shadowMap: 2048 },
+}
+const loadQuality = (): Quality => {
+  try {
+    const q = localStorage.getItem('ac-quality') as Quality | null
+    if (q && QUALITIES.includes(q)) return q
+  } catch {
+    /* storage unavailable */
+  }
+  return 'medium'
+}
+
+const SHADOW_KINDS = new Set(['hero', 'tower', 'ancient', 'courier', 'fountain'])
+
+/** Frees the GPU buffers of everything under `root` (shared projectile resources are skipped). */
+function disposeTree(root: THREE.Object3D) {
+  root.traverse((o) => {
+    const m = o as THREE.Mesh
+    if (!m.isMesh || m.userData.shared) return
+    m.geometry.dispose()
+    const mats = Array.isArray(m.material) ? m.material : [m.material]
+    for (const mt of mats) mt.dispose()
+  })
+}
+
+/** Projectile geometries are identical for every shot of a style, so they are built once. */
+const PROJ_GEO = {
+  link: new THREE.TorusGeometry(9, 3, 6, 10),
+  claw: new THREE.ConeGeometry(9, 46, 6),
+  clawHub: new THREE.SphereGeometry(16, 10, 8),
+  shaft: new THREE.CylinderGeometry(3, 3, 110, 6),
+  tip: new THREE.ConeGeometry(9, 28, 6),
+  arrowGlow: new THREE.CylinderGeometry(10, 10, 120, 8),
+  bullet: new THREE.CylinderGeometry(3, 3, 70, 6),
+  bulletGlow: new THREE.CylinderGeometry(7, 7, 80, 8),
+  core: new THREE.SphereGeometry(0.55, 10, 8),
+  orb: new THREE.SphereGeometry(1, 12, 10),
+}
+const projMats = new Map<string, THREE.Material>()
+/** Shared projectile material, keyed by kind and colour. */
+function projMat(key: string, make: () => THREE.Material) {
+  let m = projMats.get(key)
+  if (!m) projMats.set(key, (m = make()))
+  return m
+}
 
 interface Entry {
   model: Model
@@ -58,7 +109,7 @@ export class Renderer3D {
   runeMeshes = new Map<number, THREE.Group>()
   vfx!: Vfx
   composer!: EffectComposer
-  bloom!: UnrealBloomPass
+  quality = loadQuality()
   projMeshes = new Map<any, ProjMesh>()
   private lastFrame = performance.now()
   private origEm = new WeakMap<THREE.Material, { c: THREE.Color; i: number }>()
@@ -70,7 +121,8 @@ export class Renderer3D {
   constructor(public canvas: HTMLCanvasElement, public w: World) {
     this.myTeam = w.player.team
     this.cam = { x: w.player.x, y: w.player.y }
-    this.gl = new THREE.WebGLRenderer({ canvas, antialias: true })
+    // antialiasing happens on the post-processing target, so the canvas itself needs none
+    this.gl = new THREE.WebGLRenderer({ canvas, antialias: false })
     this.gl.shadowMap.enabled = true
     this.gl.shadowMap.type = THREE.PCFSoftShadowMap
     this.gl.outputColorSpace = THREE.SRGBColorSpace
@@ -95,7 +147,7 @@ export class Renderer3D {
     this.scene.add(this.hemi)
     this.sun = new THREE.DirectionalLight('#fff0d0', 2.1)
     this.sun.castShadow = true
-    this.sun.shadow.mapSize.set(2048, 2048)
+    this.sun.shadow.mapSize.setScalar(QUALITY_CFG[this.quality].shadowMap)
     const sc = this.sun.shadow.camera
     sc.left = -1700
     sc.right = 1700
@@ -117,16 +169,40 @@ export class Renderer3D {
   /* ------------------------------------------------------------ setup */
 
   private setupComposer() {
-    const rt = new THREE.WebGLRenderTarget(this.W || 800, this.H || 600, { type: THREE.HalfFloatType, samples: 4 })
+    const cfg = QUALITY_CFG[this.quality]
+    const rt = new THREE.WebGLRenderTarget(this.W || 800, this.H || 600, { type: THREE.HalfFloatType, samples: cfg.samples })
     this.composer = new EffectComposer(this.gl, rt)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(this.W || 800, this.H || 600), 0.4, 0.5, 0.9)
-    this.composer.addPass(this.bloom)
+    if (cfg.bloom > 0) {
+      const bloom = new UnrealBloomPass(new THREE.Vector2(this.W || 800, this.H || 600), 0.4, 0.5, 0.9)
+      // bloom is a blur, so a lower internal resolution is hard to see and much cheaper
+      const setSize = bloom.setSize.bind(bloom)
+      bloom.setSize = (w: number, h: number) => setSize(Math.max(1, Math.round(w * cfg.bloom)), Math.max(1, Math.round(h * cfg.bloom)))
+      this.composer.addPass(bloom)
+    }
     this.composer.addPass(new OutputPass())
   }
 
+  /** Switches the graphics preset (pixel ratio, MSAA, bloom, shadow map) and remembers it. */
+  setQuality(q: Quality) {
+    if (q === this.quality) return
+    this.quality = q
+    try {
+      localStorage.setItem('ac-quality', q)
+    } catch {
+      /* storage unavailable */
+    }
+    for (const pass of this.composer.passes) pass.dispose()
+    this.composer.dispose()
+    this.sun.shadow.map?.dispose()
+    this.sun.shadow.map = null
+    this.sun.shadow.mapSize.setScalar(QUALITY_CFG[q].shadowMap)
+    this.setupComposer()
+    this.resize()
+  }
+
   resize() {
-    this.dpr = Math.min(window.devicePixelRatio || 1, 2)
+    this.dpr = Math.min(window.devicePixelRatio || 1, QUALITY_CFG[this.quality].dpr)
     this.W = window.innerWidth
     this.H = window.innerHeight
     this.gl.setPixelRatio(this.dpr)
@@ -257,6 +333,13 @@ export class Renderer3D {
   /* -------------------------------------------------------- unit models */
 
   private makeModel(u: Unit): Model {
+    const m = this.buildModel(u)
+    // only the big silhouettes cast shadows: creeps and summons would double the draw calls for little visual gain
+    if (!SHADOW_KINDS.has(u.kind)) m.group.traverse((o) => (o.castShadow = false))
+    return m
+  }
+
+  private buildModel(u: Unit): Model {
     switch (u.kind) {
       case 'hero':
         return buildHero(u.h!.def.id, u.h!.def.color, u.h!.def.color2, u.team, u.radius)
@@ -390,6 +473,7 @@ export class Renderer3D {
     for (const [id, e] of this.entries) {
       if (!seen.has(id)) {
         this.scene.remove(e.model.group)
+        disposeTree(e.model.group)
         this.entries.delete(id)
       }
     }
@@ -483,51 +567,57 @@ export class Renderer3D {
   private makeProj(p: any): ProjMesh {
     const g = new THREE.Group()
     const col = p.color || (p.kind === 'linear' ? '#fff0a0' : '#ffffff')
-    const glowMat = () => new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false })
+    const glowMat = () => projMat('glow' + col, () => new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }))
+    const basic = (c: string) => projMat('basic' + c, () => new THREE.MeshBasicMaterial({ color: c }))
+    const mesh = (geo: THREE.BufferGeometry, mt: THREE.Material) => {
+      const m = new THREE.Mesh(geo, mt)
+      m.userData.shared = true
+      return m
+    }
     let links: THREE.Mesh[] | undefined
     if (p.kind === 'linear' && p.draw === 'hook') {
-      const stone = new THREE.MeshStandardMaterial({ color: '#9a9aa8', metalness: 0.7, roughness: 0.4 })
+      const stone = projMat('hookStone', () => new THREE.MeshStandardMaterial({ color: '#9a9aa8', metalness: 0.7, roughness: 0.4 }))
       links = []
       for (let i = 0; i < 26; i++) {
-        const l = new THREE.Mesh(new THREE.TorusGeometry(9, 3, 6, 10), stone)
+        const l = mesh(PROJ_GEO.link, stone)
         l.castShadow = true
         links.push(l)
         this.scene.add(l)
       }
       const head = new THREE.Group()
-      const claw = new THREE.MeshStandardMaterial({ color: '#c9c9d4', metalness: 0.8, roughness: 0.3 })
+      const claw = projMat('hookClaw', () => new THREE.MeshStandardMaterial({ color: '#c9c9d4', metalness: 0.8, roughness: 0.3 }))
       for (let i = 0; i < 3; i++) {
-        const c = new THREE.Mesh(new THREE.ConeGeometry(9, 46, 6), claw)
-        c.position.set(0, 0, 0)
+        const c = mesh(PROJ_GEO.claw, claw)
         c.rotation.z = Math.PI / 2
         c.rotation.x = (i / 3) * Math.PI * 2
         c.position.set(18, Math.sin((i / 3) * Math.PI * 2) * 14, Math.cos((i / 3) * Math.PI * 2) * 14)
         head.add(c)
       }
-      head.add(new THREE.Mesh(new THREE.SphereGeometry(16, 10, 8), claw))
+      head.add(mesh(PROJ_GEO.clawHub, claw))
       g.add(head)
     } else if ((p.kind === 'linear' && p.draw === 'arrow') || p.style === 'arrow') {
-      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 110, 6), new THREE.MeshBasicMaterial({ color: '#f4e8b0' }))
+      const shaft = mesh(PROJ_GEO.shaft, basic('#f4e8b0'))
       shaft.rotation.z = Math.PI / 2
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(9, 28, 6), new THREE.MeshBasicMaterial({ color: '#ffffff' }))
+      const tip = mesh(PROJ_GEO.tip, basic('#ffffff'))
       tip.rotation.z = -Math.PI / 2
       tip.position.x = 62
-      const glow = new THREE.Mesh(new THREE.CylinderGeometry(10, 10, 120, 8), glowMat())
+      const glow = mesh(PROJ_GEO.arrowGlow, glowMat())
       glow.rotation.z = Math.PI / 2
       g.add(shaft, tip, glow)
       if (p.kind !== 'linear') g.scale.setScalar(0.55)
     } else if (p.style === 'bullet') {
-      const b = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 70, 6), new THREE.MeshBasicMaterial({ color: '#ffffff' }))
+      const b = mesh(PROJ_GEO.bullet, basic('#ffffff'))
       b.rotation.z = Math.PI / 2
-      const glow = new THREE.Mesh(new THREE.CylinderGeometry(7, 7, 80, 8), glowMat())
+      const glow = mesh(PROJ_GEO.bulletGlow, glowMat())
       glow.rotation.z = Math.PI / 2
       g.add(b, glow)
     } else {
       const r = p.kind === 'linear' ? 22 : Math.max(9, (p.size || 4) * 2.6)
-      const core = new THREE.Mesh(new THREE.SphereGeometry(r * 0.55, 10, 8), new THREE.MeshBasicMaterial({ color: '#ffffff' }))
-      const glow = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 10), glowMat())
+      const core = mesh(PROJ_GEO.core, basic('#ffffff'))
+      core.scale.setScalar(r)
+      const glow = mesh(PROJ_GEO.orb, glowMat())
+      glow.scale.setScalar(p.style === 'fire' ? r * 1.3 : r)
       g.add(core, glow)
-      if (p.style === 'fire') glow.scale.set(1.3, 1.3, 1.3)
     }
     this.scene.add(g)
     // particle trail that follows the projectile until it disappears
@@ -610,6 +700,7 @@ export class Renderer3D {
     for (const [id, g] of this.runeMeshes) {
       if (!live.has(id)) {
         this.scene.remove(g)
+        disposeTree(g)
         this.runeMeshes.delete(id)
       }
     }
@@ -650,6 +741,7 @@ export class Renderer3D {
     for (const [id, g] of this.wardMeshes) {
       if (!live.has(id)) {
         this.scene.remove(g)
+        disposeTree(g)
         this.wardMeshes.delete(id)
       }
     }
