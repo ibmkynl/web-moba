@@ -4,6 +4,7 @@ import { MAP, Pt, TEAM_COLOR, Team, isNeutral } from '../sim/constants'
 import type { Unit } from '../sim/entities'
 import { RUNE_INFO, reaches, type World } from '../sim/world'
 import { Minimap } from './minimap'
+import { optimizeModel } from './modelopt'
 import { buildTerrain } from './terrain3d'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
@@ -48,12 +49,12 @@ const loadQuality = (): Quality => {
 
 const SHADOW_KINDS = new Set(['hero', 'tower', 'ancient', 'courier', 'fountain'])
 
-/** Frees the GPU buffers of everything under `root` (shared projectile resources are skipped). */
+/** Frees the GPU resources under `root`. Skipped: shared projectile meshes, and cached merged geometry (sharedGeo). */
 function disposeTree(root: THREE.Object3D) {
   root.traverse((o) => {
     const m = o as THREE.Mesh
     if (!m.isMesh || m.userData.shared) return
-    m.geometry.dispose()
+    if (!m.userData.sharedGeo) m.geometry.dispose()
     const mats = Array.isArray(m.material) ? m.material : [m.material]
     for (const mt of mats) mt.dispose()
   })
@@ -340,7 +341,8 @@ export class Renderer3D {
   /* -------------------------------------------------------- unit models */
 
   private makeModel(u: Unit): Model {
-    const m = this.buildModel(u)
+    const key = `${u.kind}|${u.kind === 'hero' ? u.h!.def.id : u.sub}|${u.team}|${u.radius}|${u.kind === 'summon' ? u.extra.color : ''}`
+    const m = optimizeModel(this.buildModel(u), key)
     // only the big silhouettes cast shadows: creeps and summons would double the draw calls for little visual gain
     if (!SHADOW_KINDS.has(u.kind)) m.group.traverse((o) => (o.castShadow = false))
     return m
