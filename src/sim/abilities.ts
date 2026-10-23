@@ -7,6 +7,7 @@ import { L, ang, same, heroesNear } from './abkit'
 
 export const MEAT_HOOK: AbilityDef = {
   id: 'pudge_hook', name: 'Meat Hook', glyph: '⚓', color: '#b83a3a',
+  aim: { line: { len: 1300, width: 180 } },
   behavior: 'point', range: same(4, 1300), castPoint: 0.3, cd: [18, 16, 14, 12], mana: same(4, 110), maxLevel: 4,
   desc: 'Launches a bloody hook toward a location. It snags the first enemy unit in its path and drags it back to Pudge. Enemy heroes take damage; non-ancient creeps are killed outright.',
   info: (l) => [`Damage: ${L([150, 220, 290, 360], l)}`, 'Range: 1300', 'Hook radius: 100'],
@@ -50,6 +51,7 @@ export const MEAT_HOOK: AbilityDef = {
 
 export const ROT: AbilityDef = {
   id: 'pudge_rot', name: 'Rot', glyph: '☣', color: '#7ab83a',
+  toggleArea: { r: 250, fill: 'rgba(120,190,50,0.2)', stroke: 'rgba(150,220,70,0.7)' },
   behavior: 'toggle', castPoint: 0, cd: same(4, 0), mana: same(4, 0), maxLevel: 4,
   desc: 'A toxic cloud that deals heavy damage per second and slows enemies around Pudge. Pudge takes damage from his own Rot.',
   info: (l) => [`Damage per second: ${L([30, 60, 90, 120], l)}`, 'Radius: 250', `Slow: ${Math.round(L([0.14, 0.2, 0.26, 0.32], l) * 100)}%`],
@@ -150,6 +152,7 @@ export const DISMEMBER: AbilityDef = {
 
 export const SHRAPNEL: AbilityDef = {
   id: 'sniper_shrapnel', name: 'Shrapnel', glyph: '✹', color: '#c8a050',
+  aim: { aoe: { r: [400, 425, 450, 475], color: 'rgba(230,190,90,0.8)' } },
   behavior: 'point', range: same(4, 1800), castPoint: 0.3, cd: same(4, 0.6), mana: same(4, 75), maxLevel: 4,
   charges: { max: 3, restore: same(4, 35) },
   desc: 'Consumes a charge to shower a target area with pellets after a short delay. Enemies in the area take damage over time and are slowed. Reveals the area. Charges restore over time.',
@@ -221,6 +224,8 @@ export const TAKE_AIM: AbilityDef = {
 
 export const ASSASSINATE: AbilityDef = {
   id: 'sniper_assassinate', name: 'Assassinate', glyph: '✜', color: '#d84a3a',
+  castSlack: 600,
+  aimBeam: true,
   behavior: 'unit', target: 'enemy', range: same(3, 3000), castPoint: 2.0, cd: [20, 15, 10], mana: same(3, 175), maxLevel: 3, ult: true,
   desc: 'Sniper locks onto an enemy unit and, after a long aiming time, fires a devastating shot that deals his attack damage plus bonus damage and mini-stuns the target. Refreshes when Sniper kills an enemy hero.',
   info: (l) => [`Bonus damage: ${L([300, 400, 500], l)}`, 'Aiming time: 2s', 'Range: 3000'],
@@ -251,6 +256,7 @@ export const ASSASSINATE: AbilityDef = {
 
 export const STARSTORM: AbilityDef = {
   id: 'mirana_starstorm', name: 'Starstorm', glyph: '★', color: '#7aa8ff',
+  aim: { circle: { r: 675, color: 'rgba(122,168,255,0.7)' } },
   behavior: 'none', castPoint: 0.4, cd: same(4, 12), mana: [80, 90, 100, 110], maxLevel: 4,
   desc: 'Calls down a wave of meteors on all nearby enemy units. The closest enemy to Mirana is struck a second time.',
   info: (l) => [`Damage: ${L([75, 150, 225, 300], l)}`, 'Radius: 675', 'Second strike: 75% to the nearest enemy'],
@@ -280,6 +286,7 @@ export const STARSTORM: AbilityDef = {
 
 export const SACRED_ARROW: AbilityDef = {
   id: 'mirana_arrow', name: 'Sacred Arrow', glyph: '➳', color: '#e8d870',
+  aim: { line: { len: 3000, width: 190 } },
   behavior: 'point', range: same(4, 3000), castPoint: 0.5, cd: [19, 18, 17, 16], mana: same(4, 90), maxLevel: 4,
   desc: 'Fires a long-range arrow that stuns and damages the first enemy unit it strikes. Stun duration and damage grow with the distance the arrow has travelled. Instantly kills the first non-ancient creep it hits.',
   info: (l) => [
@@ -322,6 +329,7 @@ export const SACRED_ARROW: AbilityDef = {
 
 export const LEAP: AbilityDef = {
   id: 'mirana_leap', name: 'Leap', glyph: '⤴', color: '#5ad0c0',
+  aim: { line: { len: 575, width: 80, color: 'rgba(90,208,192,0.25)' } },
   behavior: 'point', noMove: true, castPoint: 0, cd: same(4, 0.5), mana: same(4, 40), maxLevel: 4,
   charges: { max: 3, restore: [52, 44, 36, 28] },
   desc: 'Mirana leaps forward and gains bonus movement and attack speed. Holds multiple charges that recharge over time.',
@@ -465,6 +473,7 @@ export const CULLING_BLADE: AbilityDef = {
 
 export const TELEKINESIS: AbilityDef = {
   id: 'rubick_tk', name: 'Telekinesis', glyph: '☝', color: '#5ab0e8',
+  followUp: (c, now) => !!c.extra.tk && now < c.extra.tk.end,
   behavior: 'unit', target: 'enemy', range: [550, 575, 600, 625], castPoint: 0.1, cd: [24, 21, 18, 15], mana: same(4, 110), maxLevel: 4,
   desc: 'Lifts an enemy into the air and hurls it back to the ground, stunning and damaging everything nearby. Cast the ability again while the target is airborne to choose where it lands.',
   info: (l) => [

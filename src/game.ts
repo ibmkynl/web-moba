@@ -241,23 +241,15 @@ export class Game {
     if (t && t.kind === 'ability') {
       const def = t.st.def
       const range = this.world.castRange(p, t.st)
+      const aim = def.aim
       if (range > 0) ov.rangeCircle = { r: range, color: 'rgba(255,255,255,0.55)' }
-      else if (def.id === 'mirana_starstorm') ov.rangeCircle = { r: 675, color: 'rgba(122,168,255,0.7)' }
-      if (def.id === 'pudge_hook' || def.id === 'mirana_arrow') {
+      else if (aim?.circle) ov.rangeCircle = aim.circle
+      if (aim?.line) {
         const a = Math.atan2(this.mouse.y - p.y, this.mouse.x - p.x)
-        const len = def.id === 'pudge_hook' ? 1300 : 3000
-        ov.line = {
-          from: { x: p.x, y: p.y }, to: { x: p.x + Math.cos(a) * len, y: p.y + Math.sin(a) * len },
-          width: def.id === 'pudge_hook' ? 180 : 190, color: 'rgba(255,255,255,0.18)',
-        }
+        const { len, width, color = 'rgba(255,255,255,0.18)' } = aim.line
+        ov.line = { from: { x: p.x, y: p.y }, to: { x: p.x + Math.cos(a) * len, y: p.y + Math.sin(a) * len }, width, color }
       }
-      if (def.id === 'sniper_shrapnel') {
-        ov.aoe = { x: this.mouse.x, y: this.mouse.y, r: [400, 425, 450, 475][t.st.level - 1], color: 'rgba(230,190,90,0.8)' }
-      }
-      if (def.id === 'mirana_leap') {
-        const a = Math.atan2(this.mouse.y - p.y, this.mouse.x - p.x)
-        ov.line = { from: { x: p.x, y: p.y }, to: { x: p.x + Math.cos(a) * 575, y: p.y + Math.sin(a) * 575 }, width: 80, color: 'rgba(90,208,192,0.25)' }
-      }
+      if (aim?.aoe) ov.aoe = { x: this.mouse.x, y: this.mouse.y, r: aim.aoe.r[Math.max(0, t.st.level - 1)], color: aim.aoe.color }
     } else if (t && t.kind === 'item') {
       const it = p.h!.items[t.slot]
       if (it && it.def.active === 'ward') {
@@ -589,8 +581,8 @@ export class Game {
       this.hud.toast('Ability not learned')
       return
     }
-    // Telekinesis landing
-    if (def.id === 'rubick_tk' && p.extra.tk && w.time < p.extra.tk.end) {
+    // follow-up stage (Telekinesis landing)
+    if (def.followUp?.(p, w.time)) {
       if (this.quickCast && !fromClick) this.api.tkLand(this.mouse.x, this.mouse.y)
       else this.targeting = { kind: 'tk' }
       return

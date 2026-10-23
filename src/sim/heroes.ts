@@ -28,6 +28,7 @@ export const HEROES: HeroDef[] = [
     buy: ['boots', 'gloves', 'blades', 'alacrity', 'broadsword', 'chainmail'],
   },
   {
+    buysWards: true,
     id: 'mirana', name: 'Mirana', title: 'Priestess of the Moon', attr: 'agi',
     str: 20, strG: 1.7, agi: 24, agiG: 2.5, int: 22, intG: 1.4, hpRegen: 0.25, manaRegen: 0.4,
     baseDmg: 2.7, armor: -2, ms: 290, range: 630, bat: 1.7, ap: 0.35, projSpeed: 900, radius: 34,
@@ -48,6 +49,8 @@ export const HEROES: HeroDef[] = [
     buy: ['boots', 'salve', 'chainmail', 'ogre', 'vitality', 'blink'],
   },
   {
+    buysWards: true,
+    stealSlot: true,
     id: 'rubick', name: 'Rubick', title: 'The Grand Magus', attr: 'int',
     str: 21, strG: 2, agi: 23, agiG: 2.5, int: 25, intG: 3.7, hpRegen: 0.25, manaRegen: 0.5,
     baseDmg: 30.0, armor: 1, ms: 290, range: 550, bat: 1.7, ap: 0.4, projSpeed: 1125, radius: 34,

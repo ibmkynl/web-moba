@@ -2092,7 +2092,7 @@ export class World {
     const lvl = st.level
     if (c.target && (c.target.dead || (d.target === 'enemy' && c.target.team !== u.team && !this.isVisible(u.team, c.target)))) return
     if (d.behavior === 'unit' && c.target) {
-      const range = this.castRange(u, st) + c.target.radius + (d.id === 'sniper_assassinate' ? 600 : 80)
+      const range = this.castRange(u, st) + c.target.radius + (d.castSlack ?? 80)
       if (dist(u, c.target) > range) return
     }
     const mana = d.mana[lvl - 1] || 0

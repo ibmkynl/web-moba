@@ -101,6 +101,16 @@ export interface AbilityDef {
   onEnemyHeroDeath?: (w: World, owner: Unit, victim: Unit, killer: Unit | null, lvl: number, st: AbilityState) => void
   tick?: (w: World, c: Unit, lvl: number, dt: number, st: AbilityState) => void
   ai?: (w: World, c: Unit, st: AbilityState, lvl: number) => boolean
+  /** Targeting preview while aiming: a skillshot line, an area at the cursor (radius per level), or a circle around the caster. */
+  aim?: { line?: { len: number; width: number; color?: string }; aoe?: { r: number[]; color: string }; circle?: { r: number; color: string } }
+  /** Distance beyond cast range before an in-progress cast is cancelled (default 80; long cast points such as Assassinate need more). */
+  castSlack?: number
+  /** Draw an aiming beam from caster to target during the cast point. */
+  aimBeam?: boolean
+  /** Ground area drawn around the caster while the ability is toggled on. */
+  toggleArea?: { r: number; fill: string; stroke: string }
+  /** True while pressing the key again should aim the ability's follow-up (e.g. Telekinesis landing). */
+  followUp?: (c: Unit, now: number) => boolean
 }
 
 export class AbilityState {
@@ -181,6 +191,10 @@ export interface HeroDef {
   color: string
   color2: string
   roles: string[]
+  /** Has a fifth (stolen spell) ability slot. */
+  stealSlot?: boolean
+  /** Bots playing this hero keep wards up for the team. */
+  buysWards?: boolean
   lore: string
   abilities: AbilityDef[]
   skillOrder: number[]

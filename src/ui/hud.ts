@@ -658,7 +658,7 @@ export class Hud {
     const list = this.g.abilityList()
     this.abil.forEach((el, i) => {
       const a: AbilityState | null = list[i]
-      if (i === 4) setStyle(el, 'display', hs.def.id === 'rubick' ? '' : 'none')
+      if (i === 4) setStyle(el, 'display', hs.def.stealSlot ? '' : 'none')
       if (!a) {
         el.classList.add('empty')
         setText(q(el, '.glyph') as HTMLElement, '')

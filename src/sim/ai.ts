@@ -294,7 +294,7 @@ function botShop(w: World, u: Unit, b: Brain) {
   // keep a couple of teleport scrolls in the stash
   if (h.tpScrolls < 2 && h.gold > 800 && w.time > 120) w.buyItem(u, 'tp')
   // supports keep the team's vision up
-  const supp = h.def.id === 'rubick' || h.def.id === 'mirana'
+  const supp = !!h.def.buysWards
   const wardsOut = w.wards.filter((x) => x.team === u.team).length
   const hasWard = h.items.some((i) => i && i.def.id === 'ward') || w.pendingFor(u).some((d) => d.id === 'ward')
   if (supp && !hasWard && wardsOut < 4 && w.time > 45 && h.gold >= 150) w.buyItem(u, 'ward')

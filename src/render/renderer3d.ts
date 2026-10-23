@@ -541,7 +541,7 @@ export class Renderer3D {
     }
     e.casting = u.casting
     // channel / aim beams
-    const tgt = u.channel?.target ?? (u.casting && u.casting.st.def.id === 'sniper_assassinate' ? u.casting.target : null)
+    const tgt = u.channel?.target ?? (u.casting?.st.def.aimBeam ? u.casting.target : null)
     if (tgt && t - e.chT > 0.14) {
       e.chT = t
       const col = u.channel ? u.channel.st.def.color : '#ff4a3a'
@@ -842,12 +842,13 @@ export class Renderer3D {
     for (const hh of w.heroes) {
       if (hh.dead) continue
       for (const a of hh.h!.abilities) {
-        if (a.def.id === 'pudge_rot' && a.toggled && a.level > 0) {
+        const area = a.def.toggleArea
+        if (area && a.toggled && a.level > 0) {
           c.beginPath()
-          c.arc(hh.x, hh.y, 250, 0, Math.PI * 2)
-          c.fillStyle = 'rgba(120,190,50,0.2)'
+          c.arc(hh.x, hh.y, area.r, 0, Math.PI * 2)
+          c.fillStyle = area.fill
           c.fill()
-          c.strokeStyle = 'rgba(150,220,70,0.7)'
+          c.strokeStyle = area.stroke
           c.lineWidth = lw(3)
           c.stroke()
         }
