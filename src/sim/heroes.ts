@@ -1,4 +1,5 @@
-import type { HeroDef } from './entities'
+import type { AbilityDef, HeroDef } from './entities'
+import { indexUnique } from './constants'
 import * as A from './abilities'
 import { HEROES_G1 } from './heroes_g1'
 import { HEROES_G2 } from './heroes_g2'
@@ -64,4 +65,6 @@ export const HEROES: HeroDef[] = [
 
 HEROES.push(...HEROES_G1, ...HEROES_G2, ...HEROES_G3, ...HEROES_G4)
 
-export const HERO_BY_ID: Record<string, HeroDef> = Object.fromEntries(HEROES.map((h) => [h.id, h]))
+export const HERO_BY_ID: Record<string, HeroDef> = indexUnique('hero', HEROES)
+/** Every hero ability by id (also checks that no two heroes reuse an ability id). */
+export const ABILITY_BY_ID: Record<string, AbilityDef> = indexUnique('ability', HEROES.flatMap((h) => h.abilities))

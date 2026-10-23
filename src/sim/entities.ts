@@ -109,6 +109,8 @@ export interface AbilityDef {
   aimBeam?: boolean
   /** Ground area drawn around the caster while the ability is toggled on. */
   toggleArea?: { r: number; fill: string; stroke: string }
+  /** Runs when this ability lands the killing blow on an enemy hero (cooldown resets, stacks, team buffs). */
+  onKill?: (w: World, killer: Unit, victim: Unit, st: AbilityState) => void
   /** True while pressing the key again should aim the ability's follow-up (e.g. Telekinesis landing). */
   followUp?: (c: Unit, now: number) => boolean
 }

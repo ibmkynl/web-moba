@@ -1,13 +1,11 @@
-import type { AbilityDef, Buff } from '../sim/entities'
+import type { Buff } from '../sim/entities'
 import { AbilityState, HeroState, Unit } from '../sim/entities'
-import { HEROES, HERO_BY_ID } from '../sim/heroes'
+import { ABILITY_BY_ID, HERO_BY_ID } from '../sim/heroes'
 import { ITEM_BY_ID } from '../sim/items'
 import { World, inAudience, reaches, type Announcement, type Audience } from '../sim/world'
 
 /* ------------------------------------------------------------------ registry */
 
-const ABILITY_BY_ID: Record<string, AbilityDef> = {}
-for (const h of HEROES) for (const a of h.abilities) ABILITY_BY_ID[a.id] = a
 
 /* ------------------------------------------------------------------ types */
 

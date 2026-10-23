@@ -223,6 +223,9 @@ export const TAKE_AIM: AbilityDef = {
 
 export const ASSASSINATE: AbilityDef = {
   id: 'sniper_assassinate', name: 'Assassinate', glyph: '✜', color: '#d84a3a',
+  onKill: (_w, _k, _v, st) => {
+    st.cdUntil = 0
+  },
   castSlack: 600,
   aimBeam: true,
   behavior: 'unit', target: 'enemy', range: same(3, 3000), castPoint: 2.0, cd: [20, 15, 10], mana: same(3, 175), maxLevel: 3, ult: true,
@@ -445,6 +448,15 @@ export const COUNTER_HELIX: AbilityDef = {
 
 export const CULLING_BLADE: AbilityDef = {
   id: 'axe_culling', name: 'Culling Blade', glyph: '✂', color: '#e8e8e8',
+  onKill: (w, k, _v, st) => {
+    st.cdUntil = 0
+    st.extra.stacks = (st.extra.stacks || 0) + 1
+    for (const h of w.heroes) {
+      if (h.team === k.team && !h.dead && dist(h, k) < 900) {
+        w.addBuff(h, { id: 'culling_haste', expires: w.time + 6, haste: 0.12, armor: 3, color: '#e8e8e8', label: 'Culling Blade' })
+      }
+    }
+  },
   behavior: 'unit', target: 'enemy', range: same(3, 175), castPoint: 0.3, cd: [75, 65, 55], mana: same(3, 60), maxLevel: 3, ult: true,
   desc: 'Axe spots a weakness and strikes, instantly killing an enemy below a health threshold or otherwise dealing damage. Killing a hero resets the cooldown, grants Axe permanent armor and speeds up nearby allies.',
   info: (l) => [`Kill threshold: ${L([250, 350, 450], l)} HP`, `Damage otherwise: ${L([150, 250, 350], l)}`, 'Armor per kill: +1', 'Allies in 900: +12% move speed, +3 armor for 6s'],

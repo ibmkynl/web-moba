@@ -1,5 +1,6 @@
 import { Lane, LANES, MAP, PATHS, Pt, TOWER_ARCS, dist, isNeutral } from './constants'
-import type { Unit } from './entities'
+import type { HeroState, Stats, Unit } from './entities'
+import type { TeamBrain, TeamOrder } from './team'
 import type { World } from './world'
 import { ITEM_BY_ID } from './items'
 
@@ -455,6 +456,25 @@ function botAbilities(w: World, u: Unit): boolean {
   return false
 }
 
+/** Everything one bot think looks at, gathered once and passed to each decision stage. */
+interface BotCtx {
+  w: World
+  u: Unit
+  h: HeroState
+  b: Brain
+  st: Stats
+  home: Pt
+  atFountain: boolean
+  hpPct: number
+  enemies: Unit[]
+  allies: Unit[]
+  /** enemy heroes within striking distance */
+  foes: Unit[]
+  ratio: number
+  ord: TeamOrder | null
+  tb: TeamBrain
+}
+
 function botAI(w: World, u: Unit) {
   const h = u.h!
   const b: Brain = (h.brain ||= {
@@ -478,9 +498,6 @@ function botAI(w: World, u: Unit) {
   const hpPct = u.hp / st.maxHp
   const enemies = w.enemyHeroesNear(u, 1400)
   const allies = w.heroes.filter((a) => a !== u && a.team === u.team && !a.dead && dist(a, u) < 1400)
-  const myPower = (1 + allies.length) * 1.0
-  const theirPower = enemies.length * 1.0
-
   const tb = w.team[u.team]
   const ratio = tb.ratio(w, u)
   const ord = tb.orderFor(u)
@@ -488,7 +505,25 @@ function botAI(w: World, u: Unit) {
   botTeleport(w, u, b, ord, hpPct, enemies, home)
   if (u.channel) return
 
-  // ---- retreat
+  const reach = st.range + (u.isRanged ? 260 : 380)
+  const foes = enemies.filter((e) => dist(e, u) - e.radius <= reach + 150)
+  const c: BotCtx = { w, u, h, b, st, home, atFountain, hpPct, enemies, allies, foes, ratio, ord, tb }
+  if (botRetreat(c)) return
+  useConsumables(w, u, b, enemies.length === 0)
+  if (enemies.length) useCombatItems(w, u, enemies, hpPct, false, home)
+
+  // ---- late game: group up and push the weakest lane
+  if (w.time > 1000 && h.level >= 11 && Math.random() < 0.01) b.lane = bestPushLane(w, u.team)
+
+  if (botOutnumbered(c) || botFight(c)) return
+  if (botAbilities(w, u)) return
+  if (botTeamPlan(c) || botRune(c) || botWard(c) || botLastHit(c) || botHarass(c) || botPushTowers(c) || botSiege(c)) return
+  botLanePosition(c)
+}
+
+/** Retreating: pull back to a tower or walk home (and shop), until healthy again; or start retreating when low. */
+function botRetreat(c: BotCtx): boolean {
+  const { w, u, b, home, atFountain, hpPct, enemies, ratio } = c
   if (b.state === 'retreat') {
     if (b.retreatPos) {
       // tactical pull-back to a tower, then rejoin the lane
@@ -498,15 +533,15 @@ function botAI(w: World, u: Unit) {
       } else {
         botAbilities(w, u)
         w.orderMove(u, b.retreatPos.x, b.retreatPos.y)
-        return
+        return true
       }
     } else if (b.shopTrip && !atFountain && w.time < b.stateUntil) {
       // shopping trip: walk home, spend the gold, then go back out
       w.orderMove(u, home.x, home.y)
-      return
+      return true
     } else if (b.shopTrip && atFountain && w.time < (b.leaveAt ??= w.time + 7)) {
       // at the shop: stay a few seconds so every purchase goes through
-      return
+      return true
     } else if ((hpPct > 0.88 && (atFountain || w.time > b.stateUntil)) || hpPct > 0.95) {
       b.state = 'lane'
       b.shopTrip = false
@@ -517,7 +552,7 @@ function botAI(w: World, u: Unit) {
       useConsumables(w, u, b, enemies.length === 0)
       useCombatItems(w, u, enemies, hpPct, true, home)
       if (!atFountain || hpPct < 0.88) w.orderMove(u, home.x, home.y)
-      return
+      return true
     }
   }
   const lowEnough = hpPct < 0.35 || (hpPct < 0.5 && enemies.length > 0) || (hpPct < 0.65 && ratio < 0.8)
@@ -527,17 +562,14 @@ function botAI(w: World, u: Unit) {
     botAbilities(w, u)
     useCombatItems(w, u, enemies, hpPct, true, home)
     w.orderMove(u, home.x, home.y)
-    return
+    return true
   }
-  useConsumables(w, u, b, enemies.length === 0)
-  if (enemies.length) useCombatItems(w, u, enemies, hpPct, false, home)
+  return false
+}
 
-  // ---- late game: group up and push the weakest lane
-  if (w.time > 1000 && h.level >= 11 && Math.random() < 0.01) b.lane = bestPushLane(w, u.team)
-
-  // ---- outnumbered: pull back to the nearest tower instead of feeding
-  const reach = st.range + (u.isRanged ? 260 : 380)
-  const foes = enemies.filter((e) => dist(e, u) - e.radius <= reach + 150)
+/** Outnumbered: pull back to the nearest tower instead of feeding. */
+function botOutnumbered(c: BotCtx): boolean {
+  const { w, u, b, home, atFountain, hpPct, foes, ratio, ord } = c
   if (foes.length && ratio < 0.65 && hpPct < 0.95 && !atFountain && !(ord && ord.kind === 'defend')) {
     let safe: Pt = home
     let sd = Infinity
@@ -554,53 +586,63 @@ function botAI(w: World, u: Unit) {
     b.retreatPos = safe
     botAbilities(w, u)
     w.orderMove(u, safe.x, safe.y)
-    return
+    return true
   }
+  return false
+}
 
-  // ---- fight enemy heroes (together, focusing the same target)
+/** Fight enemy heroes together, focusing the same target, when the odds are good and no tower dive is needed. */
+function botFight(c: BotCtx): boolean {
+  const { w, u, hpPct, foes, ratio, ord, tb } = c
   if (foes.length) {
     const aggressive = ord && (ord.kind === 'gank' || ord.kind === 'defend' || ord.kind === 'rescue')
     const fav = ratio >= (aggressive ? 0.85 : 1.15) || foes.some((f) => f.hp < f.st.maxHp * 0.3 && hpPct > 0.5)
     const tower = enemyTowerThreat(w, u, foes[0])
     const dive = tower && allyCreepsNear(w, u.team, tower, tower.st.range) < 2 && ratio < 2 && !foes.some((f) => f.hp < f.st.maxHp * 0.2)
     if (fav && hpPct > 0.45 && !dive) {
-      if (botAbilities(w, u)) return
+      if (botAbilities(w, u)) return true
       const f = tb.focus(w)
       const target = (f && foes.includes(f) ? f : null) || foes.sort((a, b2) => a.hp / a.st.maxHp - b2.hp / b2.st.maxHp)[0]
       w.orderAttack(u, target)
-      return
+      return true
     }
   }
+  return false
+}
 
-  if (botAbilities(w, u)) return
-
-  // ---- follow the team plan (gank / push / defend / rescue)
+/** Follow the team plan: gank, push, defend or rescue. */
+function botTeamPlan(c: BotCtx): boolean {
+  const { w, u, st, hpPct, ord } = c
   if (ord && hpPct > 0.4) {
     if (ord.kind === 'gank') {
       const tgt = w.heroes.find((x) => x.id === ord.targetId)
       if (tgt && !tgt.dead && w.canHit(u, tgt)) w.orderAttack(u, tgt)
       else w.orderAMove(u, ord.x, ord.y)
-      return
+      return true
     }
     if (ord.kind === 'push') {
       if (ord.phase === 'rally') {
         if (dist(u, ord) > 250) w.orderMove(u, ord.x, ord.y)
         else if (u.order.t !== 'idle') u.order = { t: 'idle' }
-        return
+        return true
       }
       const tower = w.units.find((x) => x.id === ord.towerId)
       if (tower && !tower.dead && !tower.locked) {
         if (dist(tower, u) - tower.radius <= st.range + 30) w.orderAttack(u, tower)
         else w.orderAMove(u, tower.x, tower.y)
-        return
+        return true
       }
     } else {
       if (dist(u, ord) > 450) w.orderAMove(u, ord.x, ord.y)
-      return
+      return true
     }
   }
+  return false
+}
 
-  // ---- grab a nearby rune (only if I'm the closest ally to it)
+/** Grab a nearby rune when this bot is the closest ally to it. */
+function botRune(c: BotCtx): boolean {
+  const { w, u, hpPct, enemies } = c
   if (hpPct > 0.5 && enemies.length === 0 && w.runes.length) {
     let pick: { x: number; y: number } | null = null
     let pd = Infinity
@@ -614,17 +656,21 @@ function botAI(w: World, u: Unit) {
     }
     if (pick) {
       if (!(u.order.t === 'move' && Math.hypot(u.order.x - pick.x, u.order.y - pick.y) < 40)) w.orderMove(u, pick.x, pick.y)
-      return
+      return true
     }
   }
+  return false
+}
 
-  // ---- place a ward at an uncovered spot
+/** Place a ward at an uncovered spot. */
+function botWard(c: BotCtx): boolean {
+  const { w, u, h, b, hpPct, enemies } = c
   const wardSlot = h.items.findIndex((i) => i && i.def.active === 'ward')
   if (b.ward && (w.time > b.ward.until || wardSlot < 0)) b.ward = null
   if (b.ward) {
     if (enemies.length === 0 && hpPct > 0.5) {
       if (u.order.t !== 'ward') w.orderWard(u, wardSlot, b.ward.x, b.ward.y)
-      return
+      return true
     }
     b.ward = null
   } else if (wardSlot >= 0 && enemies.length === 0 && hpPct > 0.6 && w.time > (b.nextWard || 0)) {
@@ -643,11 +689,15 @@ function botAI(w: World, u: Unit) {
     if (best) {
       b.ward = { x: best.x, y: best.y, until: w.time + 25 }
       w.orderWard(u, wardSlot, best.x, best.y)
-      return
+      return true
     }
   }
+  return false
+}
 
-  // ---- last hit / deny / harass
+/** Last-hit enemy creeps and deny allied ones. */
+function botLastHit(c: BotCtx): boolean {
+  const { w, u, st } = c
   const dmg = st.dmg * (1 - w.armorReduction(0))
   const rng = st.range + 100
   let lastHit: Unit | null = null
@@ -671,38 +721,50 @@ function botAI(w: World, u: Unit) {
   }
   if (lastHit) {
     w.orderAttack(u, lastHit)
-    return
+    return true
   }
   if (deny && Math.random() < 0.6) {
     w.orderAttack(u, deny)
-    return
+    return true
   }
+  return false
+}
 
-  // ---- harass an enemy hero when safe
-  if (foes.length && theirPower < myPower && hpPct > 0.7) {
+/** Harass an enemy hero when it is safe. */
+function botHarass(c: BotCtx): boolean {
+  const { w, u, hpPct, enemies, allies, foes } = c
+  if (foes.length && enemies.length < 1 + allies.length && hpPct > 0.7) {
     const tgt = foes[0]
     if (!enemyTowerThreat(w, u, tgt)) {
       w.orderAttack(u, tgt)
-      return
+      return true
     }
   }
+  return false
+}
 
-  // ---- push towers when creeps are tanking
+/** Push towers (and the Ancient) while allied creeps tank. */
+function botPushTowers(c: BotCtx): boolean {
+  const { w, u, enemies, allies } = c
   for (const t of w.towers) {
     if (t.team === u.team || t.dead || t.locked) continue
     if (dist(t, u) > 1300) continue
     if (allyCreepsNear(w, u.team, t, t.st.range + 100) >= 2 && enemies.length <= allies.length) {
       w.orderAttack(u, t)
-      return
+      return true
     }
   }
   const anc = w.ancientOf(1 - u.team)!
   if (!anc.locked && dist(anc, u) < 1500 && allyCreepsNear(w, u.team, anc, 700) >= 1) {
     w.orderAttack(u, anc)
-    return
+    return true
   }
+  return false
+}
 
-  // ---- lane cleared: siege the next unlocked building (base towers, then the Ancient)
+/** Lane cleared: siege the next unlocked building, base towers first, then the Ancient. */
+function botSiege(c: BotCtx): boolean {
+  const { w, u, b, st, hpPct, enemies, allies } = c
   const laneTowersLeft = w.towers.some((t) => t.team !== u.team && !t.dead && t.lane === b.lane)
   const outerLeft = w.towers.some((t) => t.team !== u.team && !t.dead && t.tier < 3)
   const myAlive = w.heroes.filter((h) => h.team === u.team && !h.dead).length
@@ -720,15 +782,20 @@ function botAI(w: World, u: Unit) {
         tgt = t
       }
     }
+    const anc = w.ancientOf(1 - u.team)!
     if (!tgt && !anc.locked) tgt = anc
     if (tgt) {
       if (dist(tgt, u) - tgt.radius <= st.range + 30) w.orderAttack(u, tgt)
       else w.orderAMove(u, tgt.x, tgt.y)
-      return
+      return true
     }
   }
+  return false
+}
 
-  // ---- position in lane
+/** Stand at the lane's fighting position. */
+function botLanePosition(c: BotCtx) {
+  const { w, u, b } = c
   const pos = laneStandPos(w, u, b.lane)
   if (dist(u, pos) > 70) {
     if (!(u.order.t === 'move' && Math.hypot(u.order.x - pos.x, u.order.y - pos.y) < 60)) w.orderMove(u, pos.x, pos.y)

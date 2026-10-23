@@ -291,3 +291,19 @@ const RAD_TRAILS: Pt[][] = [
   ],
 ]
 export const TRAILS: Pt[][] = [...RAD_TRAILS, ...RAD_TRAILS.map((t) => t.map(mirror))]
+
+/* ---------------------------------------------------------------- registries */
+
+/** Merges id-keyed tables from several modules; a duplicate id throws instead of silently replacing an entry. */
+export function mergeUnique<T>(label: string, ...tables: Record<string, T>[]): Record<string, T> {
+  const out: Record<string, T> = {}
+  for (const t of tables) {
+    for (const k of Object.keys(t)) {
+      if (k in out) throw new Error(`duplicate ${label} id: ${k}`)
+      out[k] = t[k]
+    }
+  }
+  return out
+}
+/** Indexes a list by id; a duplicate id throws. */
+export const indexUnique = <T extends { id: string }>(label: string, list: T[]) => mergeUnique(label, ...list.map((x) => ({ [x.id]: x })))

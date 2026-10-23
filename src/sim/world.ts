@@ -872,6 +872,18 @@ export class World implements WorldView {
     t.dead = true
     t.deadAt = this.time
     t.hp = 0
+    this.stopEverything(t)
+    // Battle Hunger ends on a kill
+    if (src) for (const b of src.buffs) if (b.hunger) b.expires = 0
+    if (t.kind === 'summon') this.vfx('ring', { x: t.x, y: t.y, r0: 10, r1: 90, dur: 0.4, color: t.tint })
+    else if (t.kind === 'creep') this.creepDied(t, src)
+    else if (t.kind === 'tower') this.towerDied(t)
+    else if (t.kind === 'ancient') this.ancientDied(t)
+    else if (t.kind === 'hero') this.heroDied(t, src, o)
+  }
+
+  /** A dying unit drops its channel, cast, swing, forced movement and orders. */
+  private stopEverything(t: Unit) {
     if (t.channel) {
       const ch = t.channel
       t.channel = null
@@ -881,14 +893,11 @@ export class World implements WorldView {
     t.attackWind = null
     t.forced = null
     t.order = { t: 'idle' }
+  }
+
+  private creepDied(t: Unit, src: Unit | null) {
     const enemyTeam = (1 - t.team) as Team
-
-    // Battle Hunger ends on a kill
-    if (src) for (const b of src.buffs) if (b.hunger) b.expires = 0
-
-    if (t.kind === 'summon') {
-      this.vfx('ring', { x: t.x, y: t.y, r0: 10, r1: 90, dur: 0.4, color: t.tint })
-    } else if (t.kind === 'creep' && isNeutral(t.team)) {
+    if (isNeutral(t.team)) {
       // jungle monster
       if (src && !isNeutral(src.team)) {
         if (src.kind === 'hero') {
@@ -897,109 +906,101 @@ export class World implements WorldView {
         }
         this.giveXp(src.team, t.x, t.y, t.xp)
       }
-    } else if (t.kind === 'creep') {
-      const denied = src && src.kind === 'hero' && src.team === t.team
-      if (denied) {
-        src!.h!.dn++
-        this.giveXp(enemyTeam, t.x, t.y, t.xp * 0.5)
-        this.text(t.x, t.y - 50, 'denied', '#cfd8e0', 14)
-        this.emit('deny', t.x, t.y)
-      } else {
-        if (src && src.kind === 'hero') {
-          src.h!.lh++
-          this.gold(src, t.bounty)
-        }
-        if (!src || src.team !== t.team) this.giveXp(enemyTeam, t.x, t.y, t.xp)
+      return
+    }
+    if (src && src.kind === 'hero' && src.team === t.team) {
+      src.h!.dn++
+      this.giveXp(enemyTeam, t.x, t.y, t.xp * 0.5)
+      this.text(t.x, t.y - 50, 'denied', '#cfd8e0', 14)
+      this.emit('deny', t.x, t.y)
+      return
+    }
+    if (src && src.kind === 'hero') {
+      src.h!.lh++
+      this.gold(src, t.bounty)
+    }
+    if (!src || src.team !== t.team) this.giveXp(enemyTeam, t.x, t.y, t.xp)
+  }
+
+  private towerDied(t: Unit) {
+    const enemyTeam = (1 - t.team) as Team
+    const g = [120, 140, 160, 180][t.tier]
+    for (const h of this.heroes) if (h.team === enemyTeam) this.gold(h, g)
+    this.pushFeed(`${t.team === 0 ? 'Radiant' : 'Dire'} ${t.name} destroyed`, enemyTeam)
+    this.emit('tower', t.x, t.y, { all: true })
+    this.announceAbout('tower_down', t.team, t.name, enemyTeam)
+    this.updateTowerLocks()
+  }
+
+  private ancientDied(t: Unit) {
+    const enemyTeam = (1 - t.team) as Team
+    this.winner = enemyTeam
+    this.pushFeed(`${t.team === 0 ? 'Radiant' : 'Dire'} Ancient destroyed!`, enemyTeam)
+    this.announceAbout('ancient_down', t.team, 'The ancient has fallen', undefined, true)
+  }
+
+  private heroDied(t: Unit, src: Unit | null, o: KillOpts) {
+    const hs = t.h!
+    const enemyTeam = (1 - t.team) as Team
+    const prevStreak = hs.streak
+    hs.deaths++
+    this.emit('death', t.x, t.y, { team: t.team })
+    hs.respawnAt = this.time + 6 + hs.level * 2.8
+    // who gets the credit: the enemy hero that landed the blow; if creeps or a tower did, the last hero that damaged the
+    // victim in the last 20s (earlier damagers are assists); nobody recent = every enemy hero shares the bounty
+    const recent: Unit[] = []
+    // most recent damager first: kill stealing is allowed, so whoever hit last gets the kill
+    for (const [id, tm] of [...t.damagers].sort((a, b) => b[1] - a[1])) {
+      if (this.time - tm > 20) continue
+      const h = this.heroes.find((x) => x.id === id)
+      if (h && h.team === enemyTeam && !recent.includes(h)) recent.push(h)
+    }
+    t.damagers.clear()
+    const denied = !!src && src.team === t.team // denies and self-kills
+    const neutralKill = !!src && isNeutral(src.team)
+    let killer: Unit | null = src && src.kind === 'hero' && src.team !== t.team ? src : null
+    if (!killer && !denied && !neutralKill && recent.length > 0) killer = recent[0] // creep/tower finish: the last hero to hit gets it
+    if (killer) hs.streak = 0 // creep/neutral/deny deaths do not end a kill streak
+    this.kills[enemyTeam] += denied || neutralKill ? 0 : 1
+    this.emit('kill', t.x, t.y, { all: true })
+    if (!denied && !neutralKill) this.heroKillRewards(t, killer, recent, prevStreak)
+    if (killer) {
+      killer.h!.kills++
+      killer.h!.streak++
+      this.announceKill(killer, t, prevStreak)
+      for (const a of recent) if (a !== killer) a.h!.assists++
+      this.pushFeed(`${this.label(killer)} killed ${this.label(t)}`, enemyTeam)
+      const st = o.abilityId ? killer.h!.abilities.find((a) => a.def.id === o.abilityId) : undefined
+      if (st?.def.onKill) st.def.onKill(this, killer, t, st)
+    } else {
+      this.pushFeed(`${this.label(t)} was killed`, enemyTeam)
+    }
+    for (const h of this.heroes) {
+      if (h.dead || h.team !== enemyTeam) continue
+      for (const a of h.h!.abilities) {
+        if (a.def.onEnemyHeroDeath) a.def.onEnemyHeroDeath(this, h, t, killer, a.level || 1, a)
       }
-    } else if (t.kind === 'tower') {
-      const g = [120, 140, 160, 180][t.tier]
-      for (const h of this.heroes) if (h.team === enemyTeam) this.gold(h, g)
-      this.pushFeed(`${t.team === 0 ? 'Radiant' : 'Dire'} ${t.name} destroyed`, enemyTeam)
-      this.emit('tower', t.x, t.y, { all: true })
-      this.announceAbout('tower_down', t.team, t.name, enemyTeam)
-      this.updateTowerLocks()
-    } else if (t.kind === 'ancient') {
-      this.winner = enemyTeam
-      this.pushFeed(`${t.team === 0 ? 'Radiant' : 'Dire'} Ancient destroyed!`, enemyTeam)
-      this.announceAbout('ancient_down', t.team, 'The ancient has fallen', undefined, true)
-    } else if (t.kind === 'hero') {
-      const hs = t.h!
-      const prevStreak = hs.streak
-      hs.deaths++
-      this.emit('death', t.x, t.y, { team: t.team })
-      hs.respawnAt = this.time + 6 + hs.level * 2.8
-      // who gets the credit: the enemy hero that landed the blow; if creeps or a tower did, the last hero that damaged the
-      // victim in the last 20s (earlier damagers are assists); nobody recent = every enemy hero shares the bounty
-      const recent: Unit[] = []
-      // most recent damager first: kill stealing is allowed, so whoever hit last gets the kill
-      for (const [id, tm] of [...t.damagers].sort((a, b) => b[1] - a[1])) {
-        if (this.time - tm > 20) continue
-        const h = this.heroes.find((x) => x.id === id)
-        if (h && h.team === enemyTeam && !recent.includes(h)) recent.push(h)
-      }
-      t.damagers.clear()
-      const denied = !!src && src.team === t.team // denies and self-kills
-      const neutralKill = !!src && isNeutral(src.team)
-      let killerHero: Unit | null = src && src.kind === 'hero' && src.team !== t.team ? src : null
-      if (!killerHero && !denied && !neutralKill && recent.length > 0) killerHero = recent[0] // creep/tower finish: the last hero to hit gets it
-      const countsAsKill = !!killerHero
-      if (countsAsKill) hs.streak = 0 // creep/neutral/deny deaths do not end a kill streak
-      this.kills[enemyTeam] += denied || neutralKill ? 0 : 1
-      this.emit('kill', t.x, t.y, { all: true })
-      const assisters: Unit[] = []
-      for (const h of recent) if (h !== killerHero) assisters.push(h)
-      if (!denied && !neutralKill) this.heroKillRewards(t, killerHero, recent, prevStreak)
-      if (killerHero) {
-        killerHero.h!.kills++
-        killerHero.h!.streak++
-        // announcer: first blood, multi-kills, killing sprees, shutdowns
-        {
-          const kh = killerHero.h!
-          kh.multi = this.time - kh.lastKillAt < 18 ? kh.multi + 1 : 1
-          kh.lastKillAt = this.time
-          const nm = this.label(killerHero)
-          const multiTxt = ['', '', 'Double kill', 'Triple kill', 'Ultra kill', 'Rampage']
-          const sprees: Record<number, string> = { 3: 'Killing spree', 4: 'Dominating', 5: 'Mega kill', 6: 'Unstoppable', 7: 'Wicked sick', 8: 'Monster kill', 9: 'Godlike', 10: 'Beyond godlike' }
-          if (!this.firstBlood) {
-            this.firstBlood = true
-            this.announce('First blood!', `${nm} drew first blood`, killerHero.team, true)
-          } else if (kh.multi >= 2) {
-            this.announce(multiTxt[Math.min(5, kh.multi)] + '!', nm, killerHero.team, kh.multi >= 4)
-          } else if (sprees[Math.min(10, kh.streak)] && kh.streak >= 3) {
-            this.announce(sprees[Math.min(10, kh.streak)] + '!', `${nm} · ${kh.streak} kills in a row`, killerHero.team, kh.streak >= 6)
-          } else if (prevStreak >= 3) {
-            this.announce('Shutdown!', `${nm} ended ${this.label(t)}'s streak`, killerHero.team)
-          }
-        }
-        for (const a of assisters) a.h!.assists++
-        this.pushFeed(`${this.label(killerHero)} killed ${this.label(t)}`, enemyTeam)
-        // Assassinate refresh / Culling reset
-        const refresh = (id: string, stack = false) => {
-          const st = killerHero.h!.abilities.find((a) => a.def.id === id)
-          if (st) {
-            st.cdUntil = 0
-            if (stack) st.extra.stacks = (st.extra.stacks || 0) + 1
-          }
-        }
-        if (o.abilityId === 'sniper_assassinate') refresh('sniper_assassinate')
-        if (o.abilityId === 'axe_culling') {
-          refresh('axe_culling', true)
-          for (const h of this.heroes) {
-            if (h.team === killerHero.team && !h.dead && dist(h, killerHero) < 900) {
-              this.addBuff(h, { id: 'culling_haste', expires: this.time + 6, haste: 0.12, armor: 3, color: '#e8e8e8', label: 'Culling Blade' })
-            }
-          }
-        }
-      } else {
-        this.pushFeed(`${this.label(t)} was killed`, enemyTeam)
-      }
-      for (const h of this.heroes) {
-        if (h.dead || h.team !== enemyTeam) continue
-        for (const a of h.h!.abilities) {
-          if (a.def.onEnemyHeroDeath) a.def.onEnemyHeroDeath(this, h, t, killerHero, a.level || 1, a)
-        }
-      }
-      this.vfx('ring', { x: t.x, y: t.y, r0: 20, r1: 200, color: '#ff5a4a', dur: 0.6 })
+    }
+    this.vfx('ring', { x: t.x, y: t.y, r0: 20, r1: 200, color: '#ff5a4a', dur: 0.6 })
+  }
+
+  /** Announcer: first blood, multi-kills, killing sprees, shutdowns. */
+  private announceKill(killer: Unit, victim: Unit, prevStreak: number) {
+    const kh = killer.h!
+    kh.multi = this.time - kh.lastKillAt < 18 ? kh.multi + 1 : 1
+    kh.lastKillAt = this.time
+    const nm = this.label(killer)
+    const multiTxt = ['', '', 'Double kill', 'Triple kill', 'Ultra kill', 'Rampage']
+    const sprees: Record<number, string> = { 3: 'Killing spree', 4: 'Dominating', 5: 'Mega kill', 6: 'Unstoppable', 7: 'Wicked sick', 8: 'Monster kill', 9: 'Godlike', 10: 'Beyond godlike' }
+    if (!this.firstBlood) {
+      this.firstBlood = true
+      this.announce('First blood!', `${nm} drew first blood`, killer.team, true)
+    } else if (kh.multi >= 2) {
+      this.announce(multiTxt[Math.min(5, kh.multi)] + '!', nm, killer.team, kh.multi >= 4)
+    } else if (sprees[Math.min(10, kh.streak)] && kh.streak >= 3) {
+      this.announce(sprees[Math.min(10, kh.streak)] + '!', `${nm} · ${kh.streak} kills in a row`, killer.team, kh.streak >= 6)
+    } else if (prevStreak >= 3) {
+      this.announce('Shutdown!', `${nm} ended ${this.label(victim)}'s streak`, killer.team)
     }
   }
 
@@ -1369,60 +1370,78 @@ export class World implements WorldView {
     if (u.isStunned() || u.forced) return 'You are disabled'
     const d = it.def
     if (this.time < it.cdUntil) return 'Item is on cooldown'
-    if (d.active === 'salve') {
-      this.addBuff(u, { id: 'salve', expires: this.time + 13, regenHp: 30, breakOnDamage: true, color: '#7cc24a', label: 'Healing Salve' })
-    } else if (d.active === 'clarity') {
-      this.addBuff(u, { id: 'clarity', expires: this.time + 25, regenMana: 6, breakOnDamage: true, color: '#4aa8e0', label: 'Clarity' })
-    } else if (d.active === 'ward') {
-      if (x === undefined || y === undefined) return 'Need a target point'
-      if (Math.hypot(x - u.x, y - u.y) > (d.range || 650) + 40) return 'Too far away'
-      this.placeWard(u, x, y)
-    } else if (d.active === 'phase') {
-      this.addBuff(u, { id: 'phase', expires: this.time + 3, haste: 0.2, color: '#e0a05a', label: 'Phase Shift' })
-      it.cdUntil = this.time + (d.cd || 8)
-      return null
-    } else if (d.active === 'bkb' || d.active === 'shiva' || d.active === 'refresher' || d.active === 'force') {
-      if (d.mana && u.mana < d.mana) return 'Not enough mana'
-      if (d.active === 'bkb') {
-        this.addBuff(u, { id: 'bkb', expires: this.time + 9, immune: true, color: '#e8c24a', label: 'Black King Bar' })
-        this.vfx('ring', { x: u.x, y: u.y, r0: 30, r1: 240, dur: 0.6, color: '#e8c24a' })
-      } else if (d.active === 'shiva') {
-        this.vfx('ring', { x: u.x, y: u.y, r0: 40, r1: 900, dur: 0.7, color: '#8ad8ff' })
-        for (const e of this.enemiesIn(u.team, u.x, u.y, 900)) {
-          this.damage(u, e, 200, 'magical', { spell: true, abilityId: 'shiva' })
-          this.addBuff(e, { id: 'shiva_slow', expires: this.time + 4, slow: 0.4, src: u, color: '#8ad8ff', label: "Shiva's Guard" })
-        }
-      } else if (d.active === 'refresher') {
-        for (const a of u.h!.abilities) a.cdUntil = 0
-        if (u.h!.stolen) u.h!.stolen.cdUntil = 0
-        for (const o of u.h!.items) if (o && o !== it) o.cdUntil = 0
-        this.vfx('ring', { x: u.x, y: u.y, r0: 20, r1: 260, dur: 0.8, color: '#5ae0a0' })
-        this.text(u.x, u.y - 90, 'Refreshed!', '#5ae0a0', 18)
-      } else {
-        const a = u.facing
-        this.interrupt(u)
-        u.forced = { speed: 1200, tx: clamp(u.x + Math.cos(a) * 600, 60, MAP - 60), ty: clamp(u.y + Math.sin(a) * 600, 60, MAP - 60), stopDist: 0 } as any
-        this.vfx('ring', { x: u.x, y: u.y, r0: 20, r1: 160, dur: 0.4, color: '#5ac8e0' })
-      }
-      if (d.mana) u.mana -= d.mana
-      it.cdUntil = this.time + (d.cd || 20)
-      return null
-    } else if (d.active === 'blink') {
-      if (x === undefined || y === undefined) return 'Need a target point'
-      if (this.time - u.lastDamagedByHero < 3) return 'Blink Dagger is disabled for 3s after hero damage'
-      const a = Math.atan2(y - u.y, x - u.x)
-      const dd = Math.min(d.range || 1200, Math.hypot(x - u.x, y - u.y))
-      this.vfx('blink', { x: u.x, y: u.y, x2: u.x + Math.cos(a) * dd, y2: u.y + Math.sin(a) * dd, color: '#7ab8ff' })
-      this.displace(u, u.x + Math.cos(a) * dd, u.y + Math.sin(a) * dd)
-      this.cancelForOrder(u)
-      if (u.order.t === 'move' || u.order.t === 'cast') u.order = { t: 'idle' }
-      it.cdUntil = this.time + (d.cd || 15)
-      return null
+    switch (d.active) {
+      case 'salve':
+        this.addBuff(u, { id: 'salve', expires: this.time + 13, regenHp: 30, breakOnDamage: true, color: '#7cc24a', label: 'Healing Salve' })
+        break
+      case 'clarity':
+        this.addBuff(u, { id: 'clarity', expires: this.time + 25, regenMana: 6, breakOnDamage: true, color: '#4aa8e0', label: 'Clarity' })
+        break
+      case 'ward':
+        if (x === undefined || y === undefined) return 'Need a target point'
+        if (Math.hypot(x - u.x, y - u.y) > (d.range || 650) + 40) return 'Too far away'
+        this.placeWard(u, x, y)
+        break
+      case 'phase':
+        this.addBuff(u, { id: 'phase', expires: this.time + 3, haste: 0.2, color: '#e0a05a', label: 'Phase Shift' })
+        it.cdUntil = this.time + (d.cd || 8)
+        return null
+      case 'bkb':
+      case 'shiva':
+      case 'refresher':
+      case 'force':
+        return this.useManaItem(u, it)
+      case 'blink':
+        return this.useBlink(u, it, x, y)
     }
     if (d.consumable) {
       it.charges--
       if (it.charges <= 0) u.h!.items[slot] = null
     }
+    return null
+  }
+
+  /** Black King Bar, Shiva's Guard, Refresher Orb and Force Staff: mana cost, effect, cooldown. */
+  private useManaItem(u: Unit, it: ItemState): string | null {
+    const d = it.def
+    if (d.mana && u.mana < d.mana) return 'Not enough mana'
+    if (d.active === 'bkb') {
+      this.addBuff(u, { id: 'bkb', expires: this.time + 9, immune: true, color: '#e8c24a', label: 'Black King Bar' })
+      this.vfx('ring', { x: u.x, y: u.y, r0: 30, r1: 240, dur: 0.6, color: '#e8c24a' })
+    } else if (d.active === 'shiva') {
+      this.vfx('ring', { x: u.x, y: u.y, r0: 40, r1: 900, dur: 0.7, color: '#8ad8ff' })
+      for (const e of this.enemiesIn(u.team, u.x, u.y, 900)) {
+        this.damage(u, e, 200, 'magical', { spell: true, abilityId: 'shiva' })
+        this.addBuff(e, { id: 'shiva_slow', expires: this.time + 4, slow: 0.4, src: u, color: '#8ad8ff', label: "Shiva's Guard" })
+      }
+    } else if (d.active === 'refresher') {
+      for (const a of u.h!.abilities) a.cdUntil = 0
+      if (u.h!.stolen) u.h!.stolen.cdUntil = 0
+      for (const o of u.h!.items) if (o && o !== it) o.cdUntil = 0
+      this.vfx('ring', { x: u.x, y: u.y, r0: 20, r1: 260, dur: 0.8, color: '#5ae0a0' })
+      this.text(u.x, u.y - 90, 'Refreshed!', '#5ae0a0', 18)
+    } else {
+      const a = u.facing
+      this.interrupt(u)
+      u.forced = { speed: 1200, tx: clamp(u.x + Math.cos(a) * 600, 60, MAP - 60), ty: clamp(u.y + Math.sin(a) * 600, 60, MAP - 60), stopDist: 0 } as any
+      this.vfx('ring', { x: u.x, y: u.y, r0: 20, r1: 160, dur: 0.4, color: '#5ac8e0' })
+    }
+    if (d.mana) u.mana -= d.mana
+    it.cdUntil = this.time + (d.cd || 20)
+    return null
+  }
+
+  private useBlink(u: Unit, it: ItemState, x?: number, y?: number): string | null {
+    const d = it.def
+    if (x === undefined || y === undefined) return 'Need a target point'
+    if (this.time - u.lastDamagedByHero < 3) return 'Blink Dagger is disabled for 3s after hero damage'
+    const a = Math.atan2(y - u.y, x - u.x)
+    const dd = Math.min(d.range || 1200, Math.hypot(x - u.x, y - u.y))
+    this.vfx('blink', { x: u.x, y: u.y, x2: u.x + Math.cos(a) * dd, y2: u.y + Math.sin(a) * dd, color: '#7ab8ff' })
+    this.displace(u, u.x + Math.cos(a) * dd, u.y + Math.sin(a) * dd)
+    this.cancelForOrder(u)
+    if (u.order.t === 'move' || u.order.t === 'cast') u.order = { t: 'idle' }
+    it.cdUntil = this.time + (d.cd || 15)
     return null
   }
 
