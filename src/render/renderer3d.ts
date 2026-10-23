@@ -10,6 +10,8 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
+import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js'
 import { Vfx } from './vfx'
 import { buildCourier } from './couriers3d'
 import { buildSummon } from './summons3d'
@@ -31,11 +33,15 @@ export interface Overlay {
 const PITCH = (58 * Math.PI) / 180
 export type Quality = 'low' | 'medium' | 'high'
 export const QUALITIES: Quality[] = ['low', 'medium', 'high']
-/** dpr: pixel-ratio cap; samples: MSAA on the post-processing target; bloom: bloom resolution scale (0 = off) */
-const QUALITY_CFG: Record<Quality, { dpr: number; samples: number; bloom: number; shadowMap: number }> = {
-  low: { dpr: 1, samples: 0, bloom: 0, shadowMap: 1024 },
-  medium: { dpr: 1.5, samples: 2, bloom: 0.5, shadowMap: 2048 },
-  high: { dpr: 2, samples: 4, bloom: 1, shadowMap: 2048 },
+/**
+ * dpr: pixel-ratio cap; aa: post-process antialiasing; bloom: bloom resolution scale (0 = off).
+ * No MSAA on the composer targets: multisampled targets make every post pass pay MSAA cost (measured at 2x DPR:
+ * 4x MSAA + bloom ~41 ms GPU vs ~4 ms without MSAA), while FXAA is one cheap full-screen pass (SMAA measured ~7 ms).
+ */
+const QUALITY_CFG: Record<Quality, { dpr: number; fxaa: boolean; bloom: number; shadowMap: number }> = {
+  low: { dpr: 1, fxaa: false, bloom: 0, shadowMap: 1024 },
+  medium: { dpr: 1.5, fxaa: true, bloom: 0.5, shadowMap: 2048 },
+  high: { dpr: 2, fxaa: true, bloom: 1, shadowMap: 2048 },
 }
 const loadQuality = (): Quality => {
   try {
@@ -182,7 +188,7 @@ export class Renderer3D {
 
   private setupComposer() {
     const cfg = QUALITY_CFG[this.quality]
-    const rt = new THREE.WebGLRenderTarget(this.W || 800, this.H || 600, { type: THREE.HalfFloatType, samples: cfg.samples })
+    const rt = new THREE.WebGLRenderTarget(this.W || 800, this.H || 600, { type: THREE.HalfFloatType })
     this.composer = new EffectComposer(this.gl, rt)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
     if (cfg.bloom > 0) {
@@ -193,9 +199,13 @@ export class Renderer3D {
       this.composer.addPass(bloom)
     }
     this.composer.addPass(new OutputPass())
+    // antialiasing runs last, on the tone-mapped image
+    this.fxaa = cfg.fxaa ? new ShaderPass(FXAAShader) : null
+    if (this.fxaa) this.composer.addPass(this.fxaa)
   }
+  private fxaa: ShaderPass | null = null
 
-  /** Switches the graphics preset (pixel ratio, MSAA, bloom, shadow map) and remembers it. */
+  /** Switches the graphics preset (pixel ratio, antialiasing, bloom, shadow map) and remembers it. */
   setQuality(q: Quality) {
     if (q === this.quality) return
     this.quality = q
@@ -232,6 +242,7 @@ export class Renderer3D {
     if (this.composer) {
       this.composer.setPixelRatio(this.dpr)
       this.composer.setSize(this.W, this.H)
+      this.fxaa?.material.uniforms['resolution'].value.set(1 / (this.W * this.dpr), 1 / (this.H * this.dpr))
     }
   }
 
