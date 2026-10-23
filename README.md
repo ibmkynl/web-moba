@@ -8,6 +8,7 @@ A browser **Dota 2–style MOBA**: 5v5 on three lanes, 23 heroes with four abili
 
 ## Contents
 
+0. [Screenshots](#screenshots)
 1. [Quick start](#quick-start)
 2. [Multiplayer: LAN and online](#multiplayer-lan-and-online)
 3. [How to play](#how-to-play)
@@ -20,6 +21,125 @@ A browser **Dota 2–style MOBA**: 5v5 on three lanes, 23 heroes with four abili
 10. [Project layout](#project-layout)
 11. [Development](#development)
 12. [Troubleshooting](#troubleshooting)
+
+---
+
+## Screenshots
+
+![Gameplay](docs/screenshots/gameplay.jpg)
+
+| | |
+|---|---|
+| ![Title screen](docs/screenshots/title.jpg) | ![Hero picker](docs/screenshots/hero-picker.jpg) |
+| *Title screen* | *Dota-style hero picker (Strength / Agility / Intelligence)* |
+| ![Loading screen](docs/screenshots/loading.jpg) | ![Scoreboard](docs/screenshots/scoreboard.jpg) |
+| *Loading screen with both rosters* | *Scoreboard (hold Tab)* |
+
+### Heroes (23)
+
+In-game models, one per hero.
+
+**Strength**
+
+<table>
+<tr>
+<td align="center"><img src="docs/screenshots/heroes/pudge.png" width="190" alt="Pudge"><br><b>Pudge</b></td>
+<td align="center"><img src="docs/screenshots/heroes/axe.png" width="190" alt="Axe"><br><b>Axe</b></td>
+<td align="center"><img src="docs/screenshots/heroes/sven.png" width="190" alt="Sven"><br><b>Sven</b></td>
+<td align="center"><img src="docs/screenshots/heroes/legion_commander.png" width="190" alt="Legion Commander"><br><b>Legion Commander</b></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/screenshots/heroes/earthshaker.png" width="190" alt="Earthshaker"><br><b>Earthshaker</b></td>
+<td align="center"><img src="docs/screenshots/heroes/tidehunter.png" width="190" alt="Tidehunter"><br><b>Tidehunter</b></td>
+<td align="center"><img src="docs/screenshots/heroes/dragon_knight.png" width="190" alt="Dragon Knight"><br><b>Dragon Knight</b></td>
+</tr>
+</table>
+
+**Agility**
+
+<table>
+<tr>
+<td align="center"><img src="docs/screenshots/heroes/sniper.png" width="190" alt="Sniper"><br><b>Sniper</b></td>
+<td align="center"><img src="docs/screenshots/heroes/mirana.png" width="190" alt="Mirana"><br><b>Mirana</b></td>
+<td align="center"><img src="docs/screenshots/heroes/antimage.png" width="190" alt="Anti-Mage"><br><b>Anti-Mage</b></td>
+<td align="center"><img src="docs/screenshots/heroes/juggernaut.png" width="190" alt="Juggernaut"><br><b>Juggernaut</b></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/screenshots/heroes/riki.png" width="190" alt="Riki"><br><b>Riki</b></td>
+<td align="center"><img src="docs/screenshots/heroes/drow_ranger.png" width="190" alt="Drow Ranger"><br><b>Drow Ranger</b></td>
+<td align="center"><img src="docs/screenshots/heroes/phantom_assassin.png" width="190" alt="Phantom Assassin"><br><b>Phantom Assassin</b></td>
+<td align="center"><img src="docs/screenshots/heroes/bounty_hunter.png" width="190" alt="Bounty Hunter"><br><b>Bounty Hunter</b></td>
+</tr>
+</table>
+
+**Intelligence**
+
+<table>
+<tr>
+<td align="center"><img src="docs/screenshots/heroes/rubick.png" width="190" alt="Rubick"><br><b>Rubick</b></td>
+<td align="center"><img src="docs/screenshots/heroes/crystal_maiden.png" width="190" alt="Crystal Maiden"><br><b>Crystal Maiden</b></td>
+<td align="center"><img src="docs/screenshots/heroes/pugna.png" width="190" alt="Pugna"><br><b>Pugna</b></td>
+<td align="center"><img src="docs/screenshots/heroes/silencer.png" width="190" alt="Silencer"><br><b>Silencer</b></td>
+</tr>
+<tr>
+<td align="center"><img src="docs/screenshots/heroes/windranger.png" width="190" alt="Windranger"><br><b>Windranger</b></td>
+<td align="center"><img src="docs/screenshots/heroes/lina.png" width="190" alt="Lina"><br><b>Lina</b></td>
+<td align="center"><img src="docs/screenshots/heroes/lion.png" width="190" alt="Lion"><br><b>Lion</b></td>
+<td align="center"><img src="docs/screenshots/heroes/zeus.png" width="190" alt="Zeus"><br><b>Zeus</b></td>
+</tr>
+</table>
+
+### Lane creeps and towers
+
+![Lane creeps clashing on the river bridge](docs/screenshots/lane-creeps.jpg)
+
+*Melee and ranged lane creeps (Radiant green, Dire red) fighting a hero on the mid-lane bridge.*
+
+![Tier 2 tower](docs/screenshots/tower.jpg)
+
+*A lane tower and its attack range.*
+
+### Jungle beasts (neutral camps)
+
+| Kobold camp | Wolf camp | Ancient golem camp |
+|---|---|---|
+| ![Kobolds](docs/screenshots/neutral-kobolds.jpg) | ![Wolves](docs/screenshots/neutral-wolves.jpg) | ![Golems](docs/screenshots/neutral-golems.jpg) |
+
+*Five kobolds, an alpha wolf with two wolves, and an ancient granite golem with two rock golems. Stats follow the Dota 2 wiki; camps never heal and ignore lane creeps.*
+
+### The map
+
+![Map overview](docs/screenshots/map-overview.jpg)
+
+*Radiant jungle (left) with dirt trails between the camps, the river down the middle, and the dark Dire side (right).*
+
+| High-ground base: cliffs and lane ramp | Fountain and plaza |
+|---|---|
+| ![Base ramp](docs/screenshots/base-ramp-cliffs.jpg) | ![Fountain](docs/screenshots/fountain-base.jpg) |
+| **Enemy base** | **Edge of the map: dense forest and rocks** |
+| ![Enemy base](docs/screenshots/enemy-base.jpg) | ![Map edge](docs/screenshots/map-edge-forest.jpg) |
+
+### Items and shop
+
+Right-click an item to buy it.
+
+| All | Consumables | Attributes |
+|---|---|---|
+| ![All](docs/screenshots/shop-all.png) | ![Consumables](docs/screenshots/shop-consumable.png) | ![Attributes](docs/screenshots/shop-attribute.png) |
+| **Equipment (boots and gear)** | **Misc (Blink, Black King Bar, Shiva's...)** | |
+| ![Equipment](docs/screenshots/shop-equipment.png) | ![Misc](docs/screenshots/shop-misc.png) | |
+
+### Courier and teleport
+
+![Hop the courier](docs/screenshots/courier-hop.jpg)
+
+*Every hero has their own courier, Hop: a bird on a red e-scooter. (Here the five Radiant couriers wait at the fountain.)*
+
+![Teleporting](docs/screenshots/teleport-channel.jpg)
+
+*Channeling a teleport scroll: the scroll stash (T) sits beside the inventory and the progress bar shows in the middle of the screen. Taking damage cancels it.*
+
+> There is no Roshan in the game yet, so no screenshot of him.
 
 ---
 
