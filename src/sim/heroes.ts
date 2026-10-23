@@ -14,7 +14,7 @@ export const HEROES: HeroDef[] = [
     color: '#a85a3a', color2: '#6a2a1a', roles: ['Disabler', 'Initiator', 'Durable'],
     lore: 'A grotesque butcher who drags enemies to their doom with his hook, then feasts on whatever is left.',
     abilities: [A.MEAT_HOOK, A.ROT, A.FLESH_HEAP, A.DISMEMBER],
-    skillOrder: [0, 1, 0, 2, 0, 3, 0, 1, 1, 1, 3, 2, 2, 2, 2, 3],
+    skillOrder: [0, 1, 0, 2, 0, 3, 0, 1, 1, 1, 3, 2, 2, 2, 3],
     buy: ['boots', 'salve', 'ogre', 'chainmail', 'vitality', 'blink'],
   },
   {
@@ -24,7 +24,7 @@ export const HEROES: HeroDef[] = [
     color: '#7a8a5a', color2: '#3a4a2a', roles: ['Carry', 'Nuker'],
     lore: 'A master marksman from the Hills of Rocheport who rains death on foes from impossible distances.',
     abilities: [A.SHRAPNEL, A.HEADSHOT, A.TAKE_AIM, A.ASSASSINATE],
-    skillOrder: [1, 0, 1, 2, 1, 3, 1, 2, 2, 2, 3, 0, 0, 0, 0, 3],
+    skillOrder: [1, 0, 1, 2, 1, 3, 1, 2, 2, 2, 3, 0, 0, 0, 3],
     buy: ['boots', 'gloves', 'blades', 'alacrity', 'broadsword', 'chainmail'],
   },
   {
@@ -34,7 +34,7 @@ export const HEROES: HeroDef[] = [
     color: '#8ab0d8', color2: '#3a5a8a', roles: ['Carry', 'Escape', 'Disabler'],
     lore: 'A moonlit huntress who rides her sabre-cat into battle and fires arrows from across the map.',
     abilities: [A.STARSTORM, A.SACRED_ARROW, A.LEAP, A.MOONLIGHT],
-    skillOrder: [1, 0, 1, 2, 1, 3, 1, 2, 2, 2, 3, 0, 0, 0, 0, 3],
+    skillOrder: [1, 0, 1, 2, 1, 3, 1, 2, 2, 2, 3, 0, 0, 0, 3],
     buy: ['boots', 'gloves', 'blades', 'alacrity', 'chainmail', 'broadsword'],
   },
   {
@@ -44,7 +44,7 @@ export const HEROES: HeroDef[] = [
     color: '#b83a2a', color2: '#5a1a12', roles: ['Initiator', 'Durable', 'Carry'],
     lore: 'A warlord who throws himself into the fray, forcing foes to fight him and cutting down the weak.',
     abilities: [A.BERSERKERS_CALL, A.BATTLE_HUNGER, A.COUNTER_HELIX, A.CULLING_BLADE],
-    skillOrder: [2, 1, 2, 0, 2, 3, 2, 1, 1, 1, 3, 0, 0, 0, 0, 3],
+    skillOrder: [2, 1, 2, 0, 2, 3, 2, 1, 1, 1, 3, 0, 0, 0, 3],
     buy: ['boots', 'salve', 'chainmail', 'ogre', 'vitality', 'blink'],
   },
   {
@@ -54,7 +54,7 @@ export const HEROES: HeroDef[] = [
     color: '#7a58b8', color2: '#2a1a5a', roles: ['Support', 'Disabler', 'Nuker'],
     lore: 'A sorcerer who studies the magic of others and bends it to his own will.',
     abilities: [A.TELEKINESIS, A.FADE_BOLT, A.ARCANE_SUPREMACY, A.SPELL_STEAL],
-    skillOrder: [1, 0, 1, 2, 1, 3, 1, 0, 0, 0, 3, 2, 2, 2, 2, 3],
+    skillOrder: [1, 0, 1, 2, 1, 3, 1, 0, 0, 0, 3, 2, 2, 2, 3],
     buy: ['boots', 'clarity', 'staff', 'energy', 'staff', 'blink'],
   },
 ]

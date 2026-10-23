@@ -1,5 +1,6 @@
 import { HEROES } from '../sim/heroes'
 import { portraitStyle } from './hud'
+import { esc } from './html'
 
 export interface LoadSeat {
   team: number
@@ -35,7 +36,7 @@ export function showLoading(root: HTMLElement, seats: LoadSeat[]): Loader {
     const def = HEROES.find((h) => h.id === s.hero)
     return `<div class="lcard ${s.team === 0 ? 'rad' : 'dire'} ${s.you ? 'you' : ''}" style="--d:${0.15 + i * 0.12}s">
       <div class="lp" style="${def ? portraitStyle(def) : ''}"></div>
-      <div class="lt"><b>${def ? def.name : '?'}</b><small>${s.human ? '★ ' : ''}${s.name}</small></div>
+      <div class="lt"><b>${def ? def.name : '?'}</b><small>${s.human ? '★ ' : ''}${esc(s.name)}</small></div>
       <div class="ll">${LANE[s.lane] || ''}</div></div>`
   }
   const rad = seats.filter((s) => s.team === 0).map(card).join('')

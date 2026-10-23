@@ -965,9 +965,7 @@ export class World {
     const hs = h.h!
     let guard = 30
     while (hs.points > 0 && guard-- > 0) {
-      const learned = hs.abilities.reduce((n, x) => n + x.level, 0)
-      const want = hs.def.skillOrder[learned]
-      if (want !== undefined && this.levelAbility(h, want)) continue
+      if (this.levelFromOrder(h)) continue
       let any = false
       for (let i = hs.abilities.length - 1; i >= 0; i--) {
         if (this.levelAbility(h, i)) {
@@ -977,6 +975,16 @@ export class World {
       }
       if (!any) break
     }
+  }
+
+  /** Levels the first skill-order entry not yet learned, skipping entries that can't be levelled right now. */
+  private levelFromOrder(h: Unit) {
+    const hs = h.h!
+    const seen = hs.abilities.map(() => 0)
+    for (const i of hs.def.skillOrder) {
+      if (++seen[i] > hs.abilities[i].level && this.levelAbility(h, i)) return true
+    }
+    return false
   }
 
   /* ------------------------------------------------------------ orders */

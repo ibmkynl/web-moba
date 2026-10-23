@@ -27,6 +27,8 @@ interface Entry {
   casting: any
   shell: THREE.Mesh | null
   chT: number
+  /** opacity multiplier currently applied to the model's materials (1 = untouched) */
+  fade: number
 }
 
 interface ProjMesh {
@@ -282,7 +284,7 @@ export class Renderer3D {
       seen.add(u.id)
       let e = this.entries.get(u.id)
       if (!e) {
-        e = { model: this.makeModel(u), kind: u.kind, swing: 0, lastAtk: 0, fxT: 0, seen: new Set(), casting: null, shell: null, chT: 0 }
+        e = { model: this.makeModel(u), kind: u.kind, swing: 0, lastAtk: 0, fxT: 0, seen: new Set(), casting: null, shell: null, chT: 0, fade: 1 }
         this.scene.add(e.model.group)
         this.entries.set(u.id, e)
       }
@@ -356,10 +358,6 @@ export class Renderer3D {
       if (deathK > 0) {
         g.rotation.z = deathK * 1.45
         g.position.y = -deathK * 24
-        for (const mt of m.mats) {
-          mt.transparent = true
-          mt.opacity = 1 - deathK * 0.9
-        }
       } else if (u.kind === 'hero') g.rotation.z = 0
       // damage flash
       const fl = Math.max(0, 1 - (t - u.hitAt) / 0.2)
@@ -385,21 +383,30 @@ export class Renderer3D {
       // living-model animation hook
       m.update?.(t, { moving, casting: !!u.casting, attacking: !!u.attackWind })
       this.unitFx(e, u, t, s0)
-      // invisibility
+      // dying heroes fade out, invisible heroes are translucent; respawned / visible ones get their materials back
       const inv = u.kind === 'hero' && u.isInvisible(t)
-      if (inv || e.swing === 1) {
-        for (const mt of m.mats) {
-          mt.transparent = true
-          mt.opacity = inv ? 0.32 : 1
-        }
-        e.swing = inv ? 1 : 0
-      }
+      this.setFade(e, deathK > 0 ? 1 - deathK * 0.9 : inv ? 0.32 : 1)
     }
     for (const [id, e] of this.entries) {
       if (!seen.has(id)) {
         this.scene.remove(e.model.group)
         this.entries.delete(id)
       }
+    }
+  }
+
+  private origOp = new WeakMap<THREE.Material, { o: number; t: boolean }>()
+  private setFade(e: Entry, k: number) {
+    if (k === e.fade) return
+    e.fade = k
+    for (const mt of e.model.mats) {
+      let o = this.origOp.get(mt)
+      if (!o) {
+        o = { o: mt.opacity, t: mt.transparent }
+        this.origOp.set(mt, o)
+      }
+      mt.opacity = o.o * k
+      mt.transparent = k < 1 || o.t
     }
   }
 

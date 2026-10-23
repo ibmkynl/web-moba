@@ -401,7 +401,7 @@ export const HEROES_G1: HeroDef[] = [
     color: '#4a6ea8', color2: '#8a2a2a', roles: ['Carry', 'Disabler', 'Initiator', 'Durable'],
     lore: 'Bastard son of a Vigil Knight, Sven is an outcast who wields a stolen blade and cleaves through any who stand between him and honor.',
     abilities: [STORM_HAMMER, GREAT_CLEAVE, WARCRY, GODS_STRENGTH],
-    skillOrder: [0, 1, 0, 2, 0, 3, 0, 1, 1, 1, 3, 2, 2, 2, 2, 3],
+    skillOrder: [0, 1, 0, 2, 0, 3, 0, 1, 1, 1, 3, 2, 2, 2, 3],
     buy: ['boots', 'broadsword', 'gloves', 'chainmail', 'vitality', 'blink'],
   },
   {
@@ -411,7 +411,7 @@ export const HEROES_G1: HeroDef[] = [
     color: '#d89a2a', color2: '#7a3a1a', roles: ['Carry', 'Pusher', 'Escape'],
     lore: 'Yurnero the Juggernaut, last of his blademasters from the Isle of Masks, hides his face behind a mask and lets only his katana speak.',
     abilities: [BLADE_FURY, HEALING_WARD, BLADE_DANCE, OMNISLASH],
-    skillOrder: [0, 2, 0, 1, 0, 3, 0, 2, 2, 2, 3, 1, 1, 1, 1, 3],
+    skillOrder: [0, 2, 0, 1, 0, 3, 0, 2, 2, 2, 3, 1, 1, 1, 3],
     buy: ['boots', 'gloves', 'blades', 'alacrity', 'broadsword', 'chainmail'],
   },
   {
@@ -421,7 +421,7 @@ export const HEROES_G1: HeroDef[] = [
     color: '#c8382a', color2: '#e0b040', roles: ['Carry', 'Disabler', 'Initiator', 'Durable'],
     lore: 'Tresdin of the Bronze Legion fights at the head of an army of one, and nobody who challenges her walks away from the duel.',
     abilities: [OVERWHELMING_ODDS, PRESS_THE_ATTACK, MOMENT_OF_COURAGE, DUEL],
-    skillOrder: [1, 0, 2, 1, 2, 3, 2, 1, 1, 2, 3, 0, 0, 0, 0, 3],
+    skillOrder: [1, 0, 2, 1, 2, 3, 2, 1, 1, 2, 3, 0, 0, 0, 3],
     buy: ['boots', 'gloves', 'broadsword', 'chainmail', 'blades', 'vitality'],
   },
 ]

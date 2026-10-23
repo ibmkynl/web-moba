@@ -491,7 +491,7 @@ export const HEROES_G3: HeroDef[] = [
     color: '#8fd0ff', color2: '#2a5aa0', roles: ['Support', 'Disabler', 'Nuker'],
     lore: 'Exiled to the wastes of Icewrack, Rylai channels the cold of the Blueheart Glacier to freeze her foes and fuel her allies.',
     abilities: [CM_CRYSTAL_NOVA, CM_FROSTBITE, CM_ARCANE_AURA, CM_FREEZING_FIELD],
-    skillOrder: [1, 0, 1, 2, 1, 3, 1, 0, 0, 0, 3, 2, 2, 2, 3, 3],
+    skillOrder: [1, 0, 1, 2, 1, 3, 1, 0, 0, 0, 3, 2, 2, 2, 3],
     buy: ['boots', 'clarity', 'staff', 'energy', 'staff', 'blink'],
   },
   {
@@ -501,7 +501,7 @@ export const HEROES_G3: HeroDef[] = [
     color: '#5a9a48', color2: '#1e3a1a', roles: ['Nuker', 'Pusher'],
     lore: 'A demonic warlock of the Nether Reaches who banishes, drains and detonates his enemies with the Arts of Oblivion.',
     abilities: [PUGNA_NETHER_BLAST, PUGNA_DECREPIFY, PUGNA_NETHER_WARD, PUGNA_LIFE_DRAIN],
-    skillOrder: [0, 2, 0, 1, 0, 3, 0, 2, 2, 2, 3, 1, 1, 1, 3, 3],
+    skillOrder: [0, 2, 0, 1, 0, 3, 0, 2, 2, 2, 3, 1, 1, 1, 3],
     buy: ['boots', 'clarity', 'staff', 'energy', 'staff', 'blink'],
   },
   {
@@ -511,7 +511,7 @@ export const HEROES_G3: HeroDef[] = [
     color: '#8a80a8', color2: '#3a2a5a', roles: ['Carry', 'Support', 'Disabler'],
     lore: 'Nortrom of the Aeol Drias needs no incantations, and ensures that every spell his enemies speak will be their last.',
     abilities: [SIL_ARCANE_CURSE, SIL_GLAIVES, SIL_LAST_WORD, SIL_GLOBAL_SILENCE],
-    skillOrder: [1, 0, 1, 2, 1, 3, 1, 0, 0, 0, 3, 2, 2, 2, 3, 3],
+    skillOrder: [1, 0, 1, 2, 1, 3, 1, 0, 0, 0, 3, 2, 2, 2, 3],
     buy: ['boots', 'clarity', 'staff', 'ogre', 'energy', 'blink'],
   },
 ]

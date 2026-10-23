@@ -454,7 +454,7 @@ export const HEROES_G2: HeroDef[] = [
     color: '#8ad06a', color2: '#3a6a2a', roles: ['Carry', 'Disabler', 'Escape'],
     lore: 'A huntress of the Ymir forest who bends the wind itself. Her bow never misses its mark, and she is gone before the echo fades.',
     abilities: [SHACKLESHOT, POWERSHOT, WINDRUN, FOCUS_FIRE],
-    skillOrder: [0, 2, 0, 1, 0, 3, 0, 2, 2, 2, 3, 1, 1, 1, 3, 1],
+    skillOrder: [0, 2, 0, 1, 0, 3, 0, 2, 2, 2, 3, 1, 1, 1, 3],
     buy: ['boots', 'gloves', 'staff', 'blades', 'alacrity', 'blink'],
   },
   {
@@ -464,7 +464,7 @@ export const HEROES_G2: HeroDef[] = [
     color: '#4a5ab8', color2: '#1e1a4a', roles: ['Carry', 'Escape', 'Nuker'],
     lore: 'A monk who turned the gentle arts of his order against all magic after the Dead Gods destroyed his home. Mana is his prey.',
     abilities: [MANA_BREAK, AM_BLINK, COUNTERSPELL, MANA_VOID],
-    skillOrder: [0, 1, 0, 2, 0, 3, 0, 1, 1, 1, 3, 2, 2, 2, 3, 2],
+    skillOrder: [0, 1, 0, 2, 0, 3, 0, 1, 1, 1, 3, 2, 2, 2, 3],
     buy: ['boots', 'gloves', 'blades', 'broadsword', 'alacrity', 'chainmail'],
   },
   {
@@ -474,7 +474,7 @@ export const HEROES_G2: HeroDef[] = [
     color: '#6a5aa8', color2: '#241a4a', roles: ['Carry', 'Escape', 'Disabler'],
     lore: 'A prince of the Slithice who survived the night of his betrayal by vanishing into the shadows. He strikes from behind and is gone.',
     abilities: [SMOKE_SCREEN, BLINK_STRIKE, TRICKS, CLOAK_AND_DAGGER],
-    skillOrder: [1, 0, 1, 2, 1, 3, 1, 2, 2, 2, 3, 0, 0, 0, 3, 0],
+    skillOrder: [1, 0, 1, 2, 1, 3, 1, 2, 2, 2, 3, 0, 0, 0, 3],
     buy: ['boots', 'gloves', 'blades', 'broadsword', 'chainmail', 'alacrity'],
   },
 ]

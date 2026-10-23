@@ -1119,7 +1119,7 @@ export const ZEUS_WRATH: AbilityDef = {
 
 /* ================================================================== HEROES */
 
-const order = (a: number, b: number, c: number, u = 3) => [a, b, a, c, a, u, a, b, b, b, u, c, c, c, u, u]
+const order = (a: number, b: number, c: number, u = 3) => [a, b, a, c, a, u, a, b, b, b, u, c, c, c, u]
 
 export const HEROES_G4: HeroDef[] = [
   {

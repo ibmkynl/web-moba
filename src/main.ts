@@ -72,6 +72,9 @@ async function multiplayer(): Promise<string | null> {
     location.reload()
   })
   client.onStart = (m) => {
+    // the lobby screen is gone; late lobby messages must not redraw it over the match or the end screen
+    client.onLobby = null
+    client.onBusy = null
     const lobbySeats: any[] = (client.lastLobby?.seats as any[]) || []
     const seats: LoadSeat[] = lobbySeats.map((x) => ({ team: x.team, hero: x.hero, lane: x.lane, name: x.name, human: x.kind === 'human', you: x.seat === m.seat }))
     const loader = showLoading(screen, seats)

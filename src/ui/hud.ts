@@ -3,6 +3,7 @@ import { MAP, MAX_LEVEL, TEAM_NAME, XP_TABLE } from '../sim/constants'
 import type { AbilityState, HeroDef, Unit } from '../sim/entities'
 import { ITEMS } from '../sim/items'
 import { itemIcon } from './itemicons'
+import { esc } from './html'
 import { heroPortrait } from '../render/portraits'
 
 const ABIL_KEYS = ['Q', 'W', 'E', 'R', 'D']
@@ -201,7 +202,7 @@ export class Hud {
           ev.stopPropagation()
           if (ev.button === 0) this.g.focusHero(u)
         })
-        el.addEventListener('mouseenter', () => this.showTip(el, `<h4>${u.h!.pname || d.name}</h4><p>${d.name} — ${TEAM_NAME[team]}</p>`))
+        el.addEventListener('mouseenter', () => this.showTip(el, `<h4>${esc(u.h!.pname || d.name)}</h4><p>${d.name} — ${TEAM_NAME[team]}</p>`))
         el.addEventListener('mouseleave', () => this.hideTip())
       }
     }
@@ -356,7 +357,7 @@ export class Hud {
     }
     this.bannerBusy = true
     el.className = `on ${b.tone}`
-    el.innerHTML = `<div class="at">${b.text}</div>${b.sub ? `<div class="as">${b.sub}</div>` : ''}`
+    el.innerHTML = `<div class="at">${esc(b.text)}</div>${b.sub ? `<div class="as">${esc(b.sub)}</div>` : ''}`
     window.setTimeout(() => {
       el.className = ''
       window.setTimeout(() => this.nextBanner(), 250)
@@ -484,7 +485,7 @@ export class Hud {
       const hs = h.h!
       const isHuman = hs.isPlayer
       const mine = h === w.player
-      const pname = hs.pname || (mine ? 'You' : 'Player')
+      const pname = esc(hs.pname || (mine ? 'You' : 'Player'))
       const ping = h.extra.ping as number | undefined
       const status = h.dead ? `<span class="dead">${Math.max(0, Math.ceil(hs.respawnAt - w.time))}s</span>` : ''
       const items = hs.items
@@ -527,7 +528,7 @@ export class Hud {
     const mine = u.team === w.player.team
     const col = mine ? '#6fe06f' : '#e8564a'
     const s = u.st
-    const name = u.kind === 'hero' ? `${u.h!.def.name} <small>Lv ${u.h!.level}</small>` : u.name
+    const name = u.kind === 'hero' ? `${u.h!.def.name} <small>Lv ${u.h!.level}</small>` : esc(u.name)
     const hint =
       !mine ? 'Right-click to attack' : u.kind === 'creep' && u.hp < s.maxHp * 0.5 ? '<b>Right-click to deny</b>' : u.kind === 'creep' ? 'Deny below 50% HP' : ''
     const hpTxt = `${Math.ceil(u.hp)} / ${Math.round(s.maxHp)}`
@@ -722,7 +723,7 @@ export class Hud {
     const key = lines.map((f) => f.t + f.text).join('|')
     if (key !== this.feedKey) {
       this.feedKey = key
-      this.e.feed.innerHTML = lines.map((f) => `<div class="fl t${f.team}">${f.text}</div>`).join('')
+      this.e.feed.innerHTML = lines.map((f) => `<div class="fl t${f.team}">${esc(f.text)}</div>`).join('')
     }
     void fk
 

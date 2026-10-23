@@ -293,7 +293,7 @@ function botShop(w: World, u: Unit, b: Brain) {
   const hasWard = h.items.some((i) => i && i.def.id === 'ward') || w.pendingFor(u).some((d) => d.id === 'ward')
   if (supp && !hasWard && wardsOut < 4 && w.time > 45 && h.gold >= 150) w.buyItem(u, 'ward')
   // keep a few consumables
-  const salve = h.items.find((i) => i && i.def.id === 'salve')
+  const salve = h.items.some((i) => i && i.def.id === 'salve') || w.pendingFor(u).some((d) => d.id === 'salve')
   if (!salve && h.gold > 400) w.buyItem(u, 'salve')
 }
 

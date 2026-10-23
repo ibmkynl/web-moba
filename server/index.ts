@@ -155,7 +155,9 @@ function startGame() {
   countdownEnd = null
   for (const p of players.values()) {
     const s = p.seat
-    send(p.ws, { t: 'start', seat: s, team: s >= 0 ? seats[s].team : 0, hero: s >= 0 ? seats[s].hero : '' })
+    // seatless lobby members get no snapshots, so they stay in the lobby and wait for the next match
+    if (s < 0) send(p.ws, { t: 'busy' })
+    else send(p.ws, { t: 'start', seat: s, team: seats[s].team, hero: seats[s].hero })
   }
   console.log(`[game] started with ${heroOf.size} human player(s)`)
 }
@@ -204,7 +206,6 @@ setInterval(() => {
     return
   }
   if (phase === 'lobby') {
-    if (countdownEnd !== null) broadcastLobby()
     acc = 0
     return
   }
@@ -361,7 +362,7 @@ const server = http.createServer((req, res) => {
   try {
     const url = decodeURIComponent((req.url || '/').split('?')[0])
     let file = path.normalize(path.join(DIST, url === '/' ? 'index.html' : url))
-    if (!file.startsWith(DIST)) {
+    if (!file.startsWith(DIST + path.sep)) {
       res.writeHead(403).end()
       return
     }
