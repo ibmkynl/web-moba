@@ -161,7 +161,7 @@ export class World {
   /** one courier (Hop) per hero */
   courier: Unit[] = []
   courierFor(h: Unit): Unit | undefined {
-    return this.courier.find((c) => c.extra.owner === h.id)
+    return this.courier.find((c) => c.courierOf === h.id)
   }
   private nameBank = shuffle([...['Rook', 'Ember', 'Nova', 'Quill', 'Bolt', 'Vex', 'Mira', 'Onyx', 'Fable', 'Zephyr', 'Kite', 'Rune', 'Slate', 'Echo', 'Sable', 'Tango', 'Wisp', 'Juno', 'Pike', 'Dusk', 'Moss', 'Flint', 'Briar', 'Ash']])
   runes: Rune[] = []
@@ -383,8 +383,8 @@ export class World {
     cr.x = home.x
     cr.y = home.y
     cr.extra.home = home
-    cr.extra.owner = owner.id
-    cr.extra.noAuto = true
+    cr.courierOf = owner.id
+    cr.noAuto = true
     cr.extra.queue = []
     cr.extra.carry = []
     this.courier.push(cr)
@@ -708,7 +708,7 @@ export class World {
       if (isNeutral(t.team)) t.extra.provoked = src
       t.lastDamagedByEnemy = this.time
       // getting hit by an enemy interrupts a teleport channel
-      if (t.extra.tpUntil && t.channel && t.hp > 0) this.interrupt(t)
+      if (t.tpUntil && t.channel && t.hp > 0) this.interrupt(t)
       if (src.kind === 'hero') {
         t.lastDamagedByHero = this.time
         t.damagers.set(src.id, this.time)
@@ -845,7 +845,7 @@ export class World {
     if (src) for (const b of src.buffs) if (b.hunger) b.expires = 0
 
     if (t.kind === 'summon') {
-      this.vfx('ring', { x: t.x, y: t.y, r0: 10, r1: 90, dur: 0.4, color: t.extra.color })
+      this.vfx('ring', { x: t.x, y: t.y, r0: 10, r1: 90, dur: 0.4, color: t.tint })
     } else if (t.kind === 'creep' && isNeutral(t.team)) {
       // jungle monster
       if (src && !isNeutral(src.team)) {
@@ -1118,7 +1118,7 @@ export class World {
 
   /** Telekinesis: choose a landing spot while the target is airborne. */
   tkLand(c: Unit, x: number, y: number) {
-    const tk = c.extra.tk
+    const tk = c.tk
     if (!tk || this.time >= tk.end) return false
     const a = Math.atan2(y - tk.start.y, x - tk.start.x)
     const d = Math.min(375, Math.hypot(x - tk.start.x, y - tk.start.y))
@@ -1179,7 +1179,7 @@ export class World {
     const from = { x: u.x, y: u.y }
     const until = this.time + TP_CHANNEL
     const st = new AbilityState({ id: 'tp', name: 'Teleportation', color: '#6fd6ff' } as any, 1)
-    u.extra.tpUntil = until
+    u.tpUntil = until
     this.vfx('tp_channel', { x: from.x, y: from.y, unit: u, dur: TP_CHANNEL })
     this.vfx('tp_dest', { x: b.x, y: b.y, unit: u, dur: TP_CHANNEL })
     u.channel = {
@@ -1187,7 +1187,7 @@ export class World {
       until,
       tick: () => {},
       end: (interrupted) => {
-        u.extra.tpUntil = 0
+        u.tpUntil = 0
         // the scroll is spent whether the teleport lands or is cancelled
         hs.tpScrolls = Math.max(0, hs.tpScrolls - 1)
         hs.tpCd = this.time + 20
@@ -1242,11 +1242,11 @@ export class World {
     })
     u.x = o.x
     u.y = o.y
-    u.extra.owner = o.owner
+    u.summoner = o.owner
     u.extra.life = this.time + o.life
-    u.extra.color = o.color || '#9ad0ff'
+    u.tint = o.color || '#9ad0ff'
     u.extra.tick = o.tick
-    u.extra.noAuto = true
+    u.noAuto = true
     u.facing = o.owner.facing
     this.add(u)
     return u
@@ -1406,7 +1406,7 @@ export class World {
       bat: 1, ap: melee ? 0.467 : 0.5, projSpeed: 900, hpRegen: 0,
     })
     u.bounty = mega ? (melee ? 23 : 22) : melee ? 36.5 + up : 47.5 + 6 * up
-    if (mega) u.extra.mega = true
+    if (mega) u.mega = true
     u.xp = mega ? (melee ? 25 : 22) : melee ? 57 : 69 + 8 * up
     u.lane = lane
     const p = PATHS[team][lane].at(arc)
@@ -1799,7 +1799,7 @@ export class World {
         }
       }
     }
-    c.extra.delivering = !!target
+    c.delivering = !!target
     const dest = target ? { x: target.x, y: target.y } : home
     const d = Math.hypot(dest.x - c.x, dest.y - c.y)
     const stop = target ? 110 : 8
@@ -1939,7 +1939,7 @@ export class World {
       case 'idle':
       case 'hold': {
         const r = u.st.range
-        const t = u.kind === 'creep' || u.extra.noAuto ? null : this.acquire(u, r + 40, u.kind !== 'hero')
+        const t = u.kind === 'creep' || u.noAuto ? null : this.acquire(u, r + 40, u.kind !== 'hero')
         if (t) this.attackStep(u, t, dt, false)
         break
       }
@@ -2060,7 +2060,7 @@ export class World {
     if (u.h) {
       for (const a of u.h.abilities) if (a.level > 0 && a.def.onAttackHit) dmg += a.def.onAttackHit(this, u, t, a.level, a)
     }
-    if (u.extra.mega && t.isBuilding) dmg *= 2.2
+    if (u.mega && t.isBuilding) dmg *= 2.2
     if (u.kind === 'fountain') {
       // the fountain deals exactly 200 pure damage per hit (armor and evasion cannot save you)
       this.damage(u, t, 200, 'pure', { attack: true })

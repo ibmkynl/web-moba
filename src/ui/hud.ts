@@ -504,7 +504,7 @@ export class Hud {
       const isHuman = hs.isHuman
       const mine = h === w.player
       const pname = esc(hs.pname || (mine ? 'You' : 'Player'))
-      const ping = h.extra.ping as number | undefined
+      const ping = h.ping as number | undefined
       const status = h.dead ? `<span class="dead">${Math.max(0, Math.ceil(hs.respawnAt - w.time))}s</span>` : ''
       const items = hs.items
         .map((it) => `<span class="si">${it ? itemIcon(it.def.id) : ''}${it && it.def.consumable && it.charges > 1 ? `<i>${it.charges}</i>` : ''}</span>`)
@@ -545,7 +545,7 @@ export class Hud {
     const el = this.root.querySelector('#unitinfo') as HTMLElement
     const u = this.g.hover
     const w = this.g.world
-    if (!u || u.dead || u.kind === 'fountain' || u.extra.stub) {
+    if (!u || u.dead || u.kind === 'fountain' || u.stub) {
       el.classList.add('hidden')
       return
     }
@@ -571,7 +571,7 @@ export class Hud {
 
   private pingTxt = ''
   private updatePing(p: Unit) {
-    const ms = p.extra.ping as number | undefined
+    const ms = p.ping as number | undefined
     const txt = ms === undefined ? '— ms' : `${ms} ms`
     if (txt === this.pingTxt) return
     this.pingTxt = txt
@@ -589,7 +589,7 @@ export class Hud {
     this.g.renderer.drawMinimap(this.mmc, MM)
     // teleport channel progress (centre of the screen)
     if (!this.tpEl) this.tpEl = q(this.root, '#tpbar') as HTMLElement
-    const tpEnd = p.extra.tpUntil as number | undefined
+    const tpEnd = p.tpUntil as number | undefined
     if (tpEnd && tpEnd > w.time && !p.dead) {
       const k = Math.max(0, Math.min(1, 1 - (tpEnd - w.time) / 3))
       this.tpEl.classList.add('on')

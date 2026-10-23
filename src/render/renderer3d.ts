@@ -359,7 +359,7 @@ export class Renderer3D {
   /* -------------------------------------------------------- unit models */
 
   private makeModel(u: Unit): Model {
-    const key = `${u.kind}|${u.kind === 'hero' ? u.h!.def.id : u.sub}|${u.team}|${u.radius}|${u.kind === 'summon' ? u.extra.color : ''}`
+    const key = `${u.kind}|${u.kind === 'hero' ? u.h!.def.id : u.sub}|${u.team}|${u.radius}|${u.kind === 'summon' ? u.tint : ''}`
     const m = optimizeModel(this.buildModel(u), key)
     // only the big silhouettes cast shadows: creeps and summons would double the draw calls for little visual gain
     if (!SHADOW_KINDS.has(u.kind)) m.group.traverse((o) => (o.castShadow = false))
@@ -375,7 +375,7 @@ export class Renderer3D {
       case 'courier':
         return buildCourier(u.team, u.radius)
       case 'summon':
-        return buildSummon(u.sub, u.team, u.radius, u.extra.color)
+        return buildSummon(u.sub, u.team, u.radius, u.tint)
       case 'tower':
         return buildTower(u.team, u.radius)
       case 'ancient':
@@ -410,8 +410,8 @@ export class Renderer3D {
       if (!show) continue
       const s0 = u.kind === 'hero' ? 1.55 : u.kind === 'creep' ? 1.35 : u.kind === 'courier' ? 1.7 : u.kind === 'summon' ? 1.2 : 1
       let y = 0
-      if (u.kind === 'hero' && u.hasBuff('tk') && u.extra.liftStart) {
-        const k = (t - u.extra.liftStart) / Math.max(0.1, u.extra.liftEnd - u.extra.liftStart)
+      if (u.kind === 'hero' && u.hasBuff('tk') && u.liftStart) {
+        const k = (t - u.liftStart) / Math.max(0.1, u.liftEnd - u.liftStart)
         y = Math.max(0, Math.min(1, Math.sin(Math.min(1, k) * Math.PI) * 1.4)) * 170
       }
       if (u.kind === 'courier') {
@@ -422,7 +422,7 @@ export class Renderer3D {
         if (wheels) wheels.children.forEach((w) => (w.rotation.z -= speed * 0.0016))
         const wings = g.userData.wings as THREE.Object3D | undefined
         if (wings) {
-          const fl = Math.sin(t * (u.extra.delivering ? 9 : 4)) * 0.08
+          const fl = Math.sin(t * (u.delivering ? 9 : 4)) * 0.08
           wings.children.forEach((w) => (w.rotation.x = (w.userData.side as number) * fl))
         }
       }

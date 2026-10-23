@@ -460,7 +460,7 @@ function botAI(w: World, u: Unit) {
   const b: Brain = (h.brain ||= {
     lane: h.lane, state: 'lane', stateUntil: 0, buyIdx: 0, lastShop: -10, lastSalve: 0,
   } as Brain)
-  u.extra.noAuto = true
+  u.noAuto = true
   u.nextThink = w.time + 0.17 + Math.random() * 0.06
   if (u.forced || u.isStunned() || u.casting || u.channel) return
 
@@ -469,7 +469,7 @@ function botAI(w: World, u: Unit) {
   botShop(w, u, b)
 
   // Rubick: choose a landing spot for Telekinesis
-  if (u.extra.tk && u.extra.tkAiLand) {
+  if (u.tk && u.extra.tkAiLand) {
     w.tkLand(u, u.extra.tkAiLand.x, u.extra.tkAiLand.y)
     u.extra.tkAiLand = null
   }

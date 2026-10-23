@@ -123,7 +123,9 @@ export interface HostEvents {
   vfx: any[]
 }
 
-const EX_KEYS = ['owner', 'liftStart', 'liftEnd', 'delivering', 'color', 'mega', 'noAuto', 'ping', 'tpUntil']
+/** Typed Unit fields the client needs, sent as `ex` (the only path engine state takes over the wire, plus tk below). */
+const NET_KEYS = ['courierOf', 'liftStart', 'liftEnd', 'delivering', 'tint', 'mega', 'noAuto', 'ping', 'tpUntil'] as const
+const NET_DEFAULT: Record<(typeof NET_KEYS)[number], unknown> = { courierOf: 0, liftStart: 0, liftEnd: 0, delivering: false, tint: '', mega: false, noAuto: false, ping: undefined, tpUntil: 0 }
 const NON_HERO_ST = ['maxHp', 'armor', 'dmg', 'ms', 'range', 'bat', 'ap', 'projSpeed']
 
 /* ------------------------------------------------------------- serialization */
@@ -163,8 +165,8 @@ function unitSnap(u: Unit): UnitSnap {
   if (u.casting) s.cs = { a: u.casting.st.def.id, t: u.casting.target?.id ?? 0, s: +u.casting.start.toFixed(2), e: +u.casting.end.toFixed(2), x: Math.round(u.casting.x), y: Math.round(u.casting.y) }
   if (u.channel) s.chn = { a: u.channel.st.def.id, t: u.channel.target?.id ?? 0, u: +u.channel.until.toFixed(2) }
   const ex: Record<string, any> = {}
-  for (const k of EX_KEYS) if (u.extra[k] !== undefined && typeof u.extra[k] !== 'object') ex[k] = u.extra[k]
-  if (u.extra.tk) ex.tk = { end: u.extra.tk.end, sx: u.extra.tk.start.x, sy: u.extra.tk.start.y }
+  for (const k of NET_KEYS) if (u[k] !== NET_DEFAULT[k]) ex[k] = u[k]
+  if (u.tk) ex.tk = { end: u.tk.end, sx: u.tk.start.x, sy: u.tk.start.y }
   if (Object.keys(ex).length) s.ex = ex
   if (u.h) {
     const h = u.h
@@ -479,7 +481,7 @@ export class Replica {
       }
       if (s.hid) {
         // hidden enemy hero: roster info only
-        u.extra.stub = true
+        u.stub = true
         this.hist.delete(u.id)
         u.dead = !!s.dead
         u.hp = s.hp ?? 0
@@ -487,7 +489,7 @@ export class Replica {
         this.applyHero(u, s)
         continue
       }
-      u.extra.stub = false
+      u.stub = false
       visIds.add(u.id)
       // interpolation history
       let h = this.hist.get(u.id)
@@ -513,9 +515,8 @@ export class Replica {
       if (s.st) for (const k of Object.keys(s.st)) (u.st as any)[k] = s.st[k]
       u.buffs = (s.b || []) as any
       for (const b of u.buffs as any[]) if (b.taunt === true) b.taunt = u
-      u.extra = { ...u.extra, ...(s.ex || {}), stub: false }
-      if (!s.ex?.tk) delete u.extra.tk
-      else u.extra.tk = { end: s.ex.tk.end, start: { x: s.ex.tk.sx, y: s.ex.tk.sy } }
+      for (const k of NET_KEYS) (u as any)[k] = s.ex?.[k] ?? NET_DEFAULT[k]
+      u.tk = s.ex?.tk ? { end: s.ex.tk.end, start: { x: s.ex.tk.sx, y: s.ex.tk.sy } } : null
       if (u.kind === 'hero') this.applyHero(u, s)
       u.attackWind = null
       u.casting = null
@@ -632,7 +633,7 @@ export class Replica {
     h.earned = hs.ea
     h.heroDmg = hs.hd
     h.towerDmg = hs.td
-    if (s.ex) u.extra.ping = s.ex.ping
+    if (s.ex) u.ping = s.ex.ping
     h.items = hs.it.map((i) => (i ? { def: ITEM_BY_ID[i.i], charges: i.c, cdUntil: i.cd } : null))
     h.abilities.forEach((a, idx) => {
       const as = hs.ab[idx]

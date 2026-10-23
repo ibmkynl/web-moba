@@ -1,4 +1,4 @@
-import type { Lane, Team } from './constants'
+import type { Lane, Pt, Team } from './constants'
 import type { World } from './world'
 
 export type UnitKind = 'hero' | 'creep' | 'tower' | 'ancient' | 'fountain' | 'courier' | 'summon'
@@ -322,6 +322,31 @@ export class Unit {
   z = 0
   bounty = 0
   xp = 0
+  /* engine-visible state (renderer, HUD, network): typed here; snapshot.ts NET_KEYS lists what goes over the wire */
+  /** courier: id of the hero it serves */
+  courierOf = 0
+  /** summon: the unit that created it */
+  summoner: Unit | null = null
+  /** summon: colour of its glowing core */
+  tint = ''
+  /** lane creep upgraded to mega */
+  mega = false
+  /** never auto-acquires targets (couriers, summons, bots and players pick their own) */
+  noAuto = false
+  /** courier on a delivery run */
+  delivering = false
+  /** lifted by Telekinesis between these times */
+  liftStart = 0
+  liftEnd = 0
+  /** teleport channel ends at this time (0 = not teleporting) */
+  tpUntil = 0
+  /** hero: round trip to the host in ms (multiplayer) */
+  ping: number | undefined = undefined
+  /** replica: enemy hero known only from the roster (not visible) */
+  stub = false
+  /** caster of an active Telekinesis: where the target was lifted and when it lands */
+  tk: { target?: Unit; start: Pt; land?: Pt; end: number } | null = null
+  /** ability-private scratch state (stacks, timers...) */
   extra: any = {}
   constructor(
     public team: Team,

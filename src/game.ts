@@ -209,7 +209,7 @@ export class Game {
     let bs = Infinity
     const under = this.renderer.toWorld(mx, my) // ground point under the cursor: a clicked unit must be near it
     for (const u of w.units) {
-      if (u.dead || u.kind === 'fountain' || u.kind === 'courier' || u.extra.stub) continue
+      if (u.dead || u.kind === 'fountain' || u.kind === 'courier' || u.stub) continue
       if (Math.abs(u.x - under.x) > 900 || Math.abs(u.y - under.y) > 1100) continue
       if (!w.isVisible(me.team, u)) continue
       if (filter && !filter(u)) continue
@@ -260,7 +260,7 @@ export class Game {
       const b = this.world.nearestTpPoint(p.team, this.mouse.x, this.mouse.y)
       if (b) ov.aoe = { x: b.x, y: b.y, r: 260, color: 'rgba(111,214,255,0.9)' }
     } else if (t && t.kind === 'tk') {
-      const tk = p.extra.tk
+      const tk = p.tk
       if (tk) ov.aoe = { x: tk.start.x, y: tk.start.y, r: 375, color: 'rgba(90,176,232,0.8)' }
     }
     return ov
@@ -494,7 +494,7 @@ export class Game {
       this.camLocked = true
       return
     }
-    if (u.dead || u.extra.stub || !this.world.isVisible(me.team, u)) {
+    if (u.dead || u.stub || !this.world.isVisible(me.team, u)) {
       this.hud.toast(u.dead ? 'That hero is dead' : 'Not visible right now')
       return
     }

@@ -166,7 +166,7 @@ function broadcastSnapshots() {
     const pl = players.get(pid)
     if (pl) {
       if (hero.h) hero.h.pname = pl.name
-      hero.extra.ping = pl.ping
+      hero.ping = pl.ping
     }
   }
   const ev: HostEvents = { ...pending, vfx: w.vfxQ.splice(0).map(sanitize) }
@@ -427,7 +427,7 @@ wss.on('connection', (ws) => {
       const hero = heroOf.get(p.pid)
       if (hero && hero.h) {
         hero.h.isHuman = false
-        hero.extra.noAuto = true
+        hero.noAuto = true
         world.autoLevel(hero)
         if (phase === 'playing') away.set(p.token, { hero, seat: p.seat, name: p.name, at: Date.now() })
       }

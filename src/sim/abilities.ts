@@ -473,7 +473,7 @@ export const CULLING_BLADE: AbilityDef = {
 
 export const TELEKINESIS: AbilityDef = {
   id: 'rubick_tk', name: 'Telekinesis', glyph: '☝', color: '#5ab0e8',
-  followUp: (c, now) => !!c.extra.tk && now < c.extra.tk.end,
+  followUp: (c, now) => !!c.tk && now < c.tk.end,
   behavior: 'unit', target: 'enemy', range: [550, 575, 600, 625], castPoint: 0.1, cd: [24, 21, 18, 15], mana: same(4, 110), maxLevel: 4,
   desc: 'Lifts an enemy into the air and hurls it back to the ground, stunning and damaging everything nearby. Cast the ability again while the target is airborne to choose where it lands.',
   info: (l) => [
@@ -485,17 +485,17 @@ export const TELEKINESIS: AbilityDef = {
     const stunR = L([300, 325, 350, 375], l)
     const stunD = L([0.9, 1.1, 1.3, 1.5], l)
     w.interrupt(tg, true)
-    tg.extra.liftStart = w.time
-    tg.extra.liftEnd = w.time + lift
+    tg.liftStart = w.time
+    tg.liftEnd = w.time + lift
     w.addBuff(tg, { id: 'tk', lift: true, stun: true, expires: w.time + lift + 0.4, color: '#5ab0e8', label: 'Telekinesis' })
     w.vfx('rubick_tk_lift', { x: tg.x, y: tg.y, unit: c, unit2: tg, dur: lift })
     const tk = { target: tg, start: { x: tg.x, y: tg.y }, land: { x: tg.x, y: tg.y }, end: w.time + lift }
-    c.extra.tk = tk
+    c.tk = tk
     w.after(lift, () => {
       const finish = () => {
         w.removeBuff(tg, 'tk')
-        tg.extra.liftStart = 0
-        if (c.extra.tk === tk) c.extra.tk = null
+        tg.liftStart = 0
+        if (c.tk === tk) c.tk = null
         w.vfx('rubick_tk_land', { x: tg.x, y: tg.y, r: stunR })
         for (const e of w.enemiesIn(c.team, tg.x, tg.y, stunR)) {
           w.interrupt(e, true)
@@ -507,7 +507,7 @@ export const TELEKINESIS: AbilityDef = {
         }
       }
       if (tg.dead) {
-        if (c.extra.tk === tk) c.extra.tk = null
+        if (c.tk === tk) c.tk = null
         return
       }
       const d = dist(tg, tk.land)

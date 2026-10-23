@@ -157,7 +157,7 @@ const HEALING_WARD: AbilityDef = {
     const ward = w.spawnSummon({
       team: c.team, owner: c, sub: 'jugg_healing_ward', name: 'Healing Ward', x: t.x, y: t.y, hp: 1, radius: 28, life: 25, color: '#6ae08a',
       tick: (ww, u, dt) => {
-        const o = u.extra.owner as Unit
+        const o = u.summoner
         if (o && !o.dead && dist(u, o) > 160) {
           const a = ang(u, o)
           u.x += Math.cos(a) * 325 * dt
