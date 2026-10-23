@@ -194,8 +194,7 @@ export const HEADSHOT: AbilityDef = {
     if (Math.random() >= chance) return 0
     w.addBuff(t, { id: 'headshot', expires: w.time + 0.5, slow: 1, as: -100, color: '#d86a3a', label: 'Headshot' })
     const d = Math.atan2(t.y - a.y, t.x - a.x)
-    t.x += Math.cos(d) * 10
-    t.y += Math.sin(d) * 10
+    w.displace(t, t.x + Math.cos(d) * 10, t.y + Math.sin(d) * 10)
     w.text(t.x, t.y - 70, 'HEADSHOT!', '#ffb347')
     w.vfx('sniper_muzzle', { x: a.x, y: a.y, angle: d })
     w.vfx('sniper_headshot', { x: t.x, y: t.y, angle: d })

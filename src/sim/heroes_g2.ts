@@ -1,5 +1,5 @@
 import type { AbilityDef, HeroDef, Unit } from './entities'
-import { L, ang, same, heroesNear, clampMap } from './abkit'
+import { L, ang, same, heroesNear } from './abkit'
 import type { World } from './world'
 import { dist } from './constants'
 
@@ -198,8 +198,7 @@ const AM_BLINK: AbilityDef = {
     const nd = Math.max(200, Math.min(maxD, d))
     const x0 = c.x
     const y0 = c.y
-    c.x = clampMap(c.x + (dx / d) * nd)
-    c.y = clampMap(c.y + (dy / d) * nd)
+    w.displace(c, c.x + (dx / d) * nd, c.y + (dy / d) * nd)
     c.facing = Math.atan2(dy, dx)
     c.vx = 0
     c.vy = 0
@@ -344,8 +343,7 @@ const BLINK_STRIKE: AbilityDef = {
     const off = tg.radius + c.radius * 0.9 + 12
     const x0 = c.x
     const y0 = c.y
-    c.x = clampMap(tg.x + Math.cos(back) * off)
-    c.y = clampMap(tg.y + Math.sin(back) * off)
+    w.displace(c, tg.x + Math.cos(back) * off, tg.y + Math.sin(back) * off)
     c.facing = ang(c, tg)
     c.vx = 0
     c.vy = 0

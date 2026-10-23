@@ -230,10 +230,6 @@ export class World {
   constructor(cfg: WorldCfg, public replica = false) {
     if (replica) return
     this.buildMap()
-    for (const b of this.units) if (b.isBuilding) {
-      b.extra.fixX = b.x
-      b.extra.fixY = b.y
-    }
     this.buildHeroes(cfg)
     if (!this.player) this.player = this.heroes[0]
     this.computeVision()
@@ -494,6 +490,19 @@ export class World {
   }
 
   /** Legacy effect helper: ring/line/meteor become real 3D effects, text stays a floating label. */
+  /**
+   * The one way a spawned unit moves (walking, knockback, blinks, collision): buildings never move, everything
+   * stays on the map and out of cliff walls and solid obstacles (couriers fly over them).
+   */
+  displace(u: Unit, x: number, y: number) {
+    if (u.isBuilding) return
+    u.x = clamp(x, 30, MAP - 30)
+    u.y = clamp(y, 30, MAP - 30)
+    if (u.kind === 'courier') return
+    pushOutOfWalls(u)
+    pushOutOfSolids(u, Math.min(34, u.radius * 0.7))
+  }
+
   /** Floating combat text. `to` limits who sees it (everyone when absent). */
   text(x: number, y: number, text: string, color = '#fff', size = 16, to?: Audience) {
     this.fxs.push({ k: 'text', x, y, text, color, size, t0: this.time, dur: 1.1, to })
@@ -1199,9 +1208,7 @@ export class World {
         const a = Math.atan2(MAP / 2 - b.y, MAP / 2 - b.x)
         const off = b.radius + 120
         this.vfx('tp_depart', { x: u.x, y: u.y })
-        u.x = clamp(b.x + Math.cos(a) * off, 40, MAP - 40)
-        u.y = clamp(b.y + Math.sin(a) * off, 40, MAP - 40)
-        pushOutOfWalls(u)
+        this.displace(u, b.x + Math.cos(a) * off, b.y + Math.sin(a) * off)
         u.forced = null
         this.vfx('tp_arrive', { x: u.x, y: u.y })
       },
@@ -1373,8 +1380,7 @@ export class World {
       const a = Math.atan2(y - u.y, x - u.x)
       const dd = Math.min(d.range || 1200, Math.hypot(x - u.x, y - u.y))
       this.vfx('blink', { x: u.x, y: u.y, x2: u.x + Math.cos(a) * dd, y2: u.y + Math.sin(a) * dd, color: '#7ab8ff' })
-      u.x = clamp(u.x + Math.cos(a) * dd, 40, MAP - 40)
-      u.y = clamp(u.y + Math.sin(a) * dd, 40, MAP - 40)
+      this.displace(u, u.x + Math.cos(a) * dd, u.y + Math.sin(a) * dd)
       this.cancelForOrder(u)
       if (u.order.t === 'move' || u.order.t === 'cast') u.order = { t: 'idle' }
       it.cdUntil = this.time + (d.cd || 15)
@@ -1568,22 +1574,6 @@ export class World {
     this.stepProjectiles(dt)
     this.stepZones(dt)
     this.separate(dt)
-    // buildings never move: pin them to where they were built (no push, knockback or collision can shift them)
-    for (const u of this.units) {
-      if (!u.isBuilding) continue
-      if (u.extra.fixX === undefined) {
-        u.extra.fixX = u.x
-        u.extra.fixY = u.y
-      } else if (u.x !== u.extra.fixX || u.y !== u.extra.fixY) {
-        u.x = u.extra.fixX
-        u.y = u.extra.fixY
-      }
-    }
-    for (const u of this.units) {
-      if (u.dead || u.isBuilding || u.kind === 'courier') continue
-      pushOutOfWalls(u)
-      pushOutOfSolids(u, Math.min(34, u.radius * 0.7))
-    }
     // vision
     this.visTimer -= dt
     if (this.visTimer <= 0) {
@@ -1769,8 +1759,7 @@ export class World {
     const step = Math.min(u.st.ms * dt, Math.max(0, d - stop))
     u.vx = (dx / d) * u.st.ms
     u.vy = (dy / d) * u.st.ms
-    u.x += (dx / d) * step
-    u.y += (dy / d) * step
+    this.displace(u, u.x + (dx / d) * step, u.y + (dy / d) * step)
     return direct && d - step <= stop + 1
   }
 
@@ -1806,8 +1795,7 @@ export class World {
     if (d > stop) {
       const step = Math.min(c.st.ms * dt, d - stop)
       c.facing = Math.atan2(dest.y - c.y, dest.x - c.x)
-      c.x += (Math.cos(c.facing)) * step
-      c.y += (Math.sin(c.facing)) * step
+      this.displace(c, c.x + Math.cos(c.facing) * step, c.y + Math.sin(c.facing) * step)
       c.vx = Math.cos(c.facing) * c.st.ms
       c.vy = Math.sin(c.facing) * c.st.ms
     } else {
@@ -1855,8 +1843,7 @@ export class World {
       return
     }
     const step = Math.min(f.speed * dt, d - stop)
-    u.x = clamp(u.x + (dx / d) * step, 30, MAP - 30)
-    u.y = clamp(u.y + (dy / d) * step, 30, MAP - 30)
+    this.displace(u, u.x + (dx / d) * step, u.y + (dy / d) * step)
     u.vx = 0
     u.vy = 0
     if (d - step <= stop + 2) {
@@ -2216,16 +2203,12 @@ export class World {
         const nx = dx / d
         const ny = dy / d
         if (a.isBuilding) {
-          b.x += nx * push * 2
-          b.y += ny * push * 2
+          this.displace(b, b.x + nx * push * 2, b.y + ny * push * 2)
         } else if (b.isBuilding) {
-          a.x -= nx * push * 2
-          a.y -= ny * push * 2
+          this.displace(a, a.x - nx * push * 2, a.y - ny * push * 2)
         } else {
-          a.x -= nx * push
-          a.y -= ny * push
-          b.x += nx * push
-          b.y += ny * push
+          this.displace(a, a.x - nx * push, a.y - ny * push)
+          this.displace(b, b.x + nx * push, b.y + ny * push)
         }
       }
     }

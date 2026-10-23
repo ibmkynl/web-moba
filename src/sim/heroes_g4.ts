@@ -577,8 +577,7 @@ const PA_PHANTOM_STRIKE: AbilityDef = {
     const nx = clamp(tg.x + Math.cos(a) * (tg.radius + c.radius + 20), 40, MAP - 40)
     const ny = clamp(tg.y + Math.sin(a) * (tg.radius + c.radius + 20), 40, MAP - 40)
     w.interrupt(c)
-    c.x = nx
-    c.y = ny
+    w.displace(c, nx, ny)
     c.facing = ang(c, tg)
     w.vfx('pa_strike', { x: ox, y: oy, x2: nx, y2: ny, unit: c })
     if (tg.team !== c.team) {

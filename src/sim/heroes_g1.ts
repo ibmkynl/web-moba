@@ -1,7 +1,7 @@
 import type { AbilityDef, HeroDef, Unit } from './entities'
 import type { World } from './world'
 import { dist } from './constants'
-import { L, ang, same, heroesNear, clampMap } from './abkit'
+import { L, ang, same, heroesNear } from './abkit'
 
 /** New heroes (g1): Sven, Juggernaut, Legion Commander. Numbers follow the current Dota 2 wiki. */
 
@@ -160,8 +160,7 @@ const HEALING_WARD: AbilityDef = {
         const o = u.summoner
         if (o && !o.dead && dist(u, o) > 160) {
           const a = ang(u, o)
-          u.x += Math.cos(a) * 325 * dt
-          u.y += Math.sin(a) * 325 * dt
+          ww.displace(u, u.x + Math.cos(a) * 325 * dt, u.y + Math.sin(a) * 325 * dt)
           u.facing = a
         }
         for (const e of ww.units) {
@@ -218,8 +217,7 @@ const OMNISLASH: AbilityDef = {
     const bonus = L([40, 45, 50], l)
     const hop = (e: Unit) => {
       const a = ang(e, c) || 0
-      c.x = clampMap(e.x + Math.cos(a) * (e.radius + c.radius) * 0.8)
-      c.y = clampMap(e.y + Math.sin(a) * (e.radius + c.radius) * 0.8)
+      w.displace(c, e.x + Math.cos(a) * (e.radius + c.radius) * 0.8, e.y + Math.sin(a) * (e.radius + c.radius) * 0.8)
       c.facing = ang(c, e)
     }
     const from0 = { x: c.x, y: c.y }
