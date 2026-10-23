@@ -202,7 +202,8 @@ export class HeroState {
   dn = 0
   respawnAt = 0
   lastCast: { def: AbilityDef; level: number } | null = null
-  isPlayer = false
+  /** controlled by a person (no bot AI); which hero a client views is World.player */
+  isHuman = false
   streak = 0
   pname = ''
   earned = 0

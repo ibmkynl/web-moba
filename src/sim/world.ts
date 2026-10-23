@@ -28,7 +28,41 @@ export interface Fx {
   size?: number
   t0: number
   dur: number
+  /** floating text only: who may see it (everyone when absent) */
+  to?: Audience
 }
+
+/** Who an event or popup concerns. `only` = nobody else gets it; otherwise everyone does and the audience hears it up close. */
+export interface Audience {
+  hero?: number
+  team?: Team
+  all?: boolean
+  only?: boolean
+}
+/** True when `viewer` (the hero a client plays) belongs to the audience. */
+export const inAudience = (a: Audience | undefined, viewer: Unit | undefined) =>
+  !!a && (!!a.all || (!!viewer && (a.hero === viewer.id || a.team === viewer.team)))
+/** True when `viewer` should receive the event or popup at all. */
+export const reaches = (a: Audience | undefined, viewer: Unit | undefined) => !a || !a.only || inAudience(a, viewer)
+
+/** Announcements whose wording depends on which side the viewer is on: [about the viewer's team, about the enemy]. */
+const ANN_TEXT = {
+  ancient_hit: ['Your ancient is under attack!', 'Enemy ancient under attack'],
+  tower_down: ['Your tower has fallen', 'Enemy tower destroyed'],
+  ancient_down: ['Defeat', 'Victory!'],
+  mega: ['Mega creeps are coming!', 'Enemy mega creeps incoming'],
+} as const
+export type AnnKind = keyof typeof ANN_TEXT
+/** An announcer line. `team` = the side the news is good for (tone); `kind` + `about` make the text viewer-relative. */
+export interface Announcement {
+  text: string
+  sub: string
+  team?: number
+  epic: boolean
+  kind?: AnnKind
+  about?: Team
+}
+export const announcementText = (a: Announcement, viewerTeam: number) => (a.kind ? ANN_TEXT[a.kind][a.about === viewerTeam ? 0 : 1] : a.text)
 
 export interface Zone {
   x: number
@@ -156,6 +190,7 @@ export class World {
   feed: { t: number; text: string; team: number }[] = []
   kills = [0, 0]
   winner: Team | null = null
+  /** The hero this client views and controls. Client-side only: the simulation never reads it (the host serves many players). */
   player!: Unit
   nextWave = 0
   waveNo = 0
@@ -166,20 +201,25 @@ export class World {
   dangerTimer: [number, number] = [-99, -99]
   dangerPos: [Pt | null, Pt | null] = [null, null]
   statsDirtyAt = 0
-  onEvent: ((k: string, x: number, y: number, mine: boolean, tag?: string) => void) | null = null
+  onEvent: ((k: string, x: number, y: number, to: Audience | undefined, tag?: string) => void) | null = null
 
-  emit(k: string, x: number, y: number, mine = false, tag = '') {
-    this.onEvent?.(k, x, y, mine, tag)
+  /** Sound event. `to` = who it concerns (they hear it at full volume; with `only`, nobody else hears it). */
+  emit(k: string, x: number, y: number, to?: Audience, tag = '') {
+    this.onEvent?.(k, x, y, to, tag)
   }
 
-  /** Announcer: spoken + on-screen line. team = the side the news is about (for good/bad tone). */
-  onAnnounce: ((text: string, sub: string, team: number | undefined, epic: boolean) => void) | null = null
+  /** Announcer: spoken + on-screen line. */
+  onAnnounce: ((a: Announcement) => void) | null = null
   private ancientAlert = [-99, -99]
   private megaTold = [false, false]
   private wasDay = true
   private firstBlood = false
   announce(text: string, sub = '', team?: number, epic = false) {
-    this.onAnnounce?.(text, sub, team, epic)
+    this.onAnnounce?.({ text, sub, team, epic })
+  }
+  /** Announcement about `about`'s side; each viewer gets the wording for their own team. */
+  announceAbout(kind: AnnKind, about: Team, sub: string, team: number | undefined, epic = false) {
+    this.onAnnounce?.({ text: ANN_TEXT[kind][1], sub, team, epic, kind, about })
   }
 
   get isDay() {
@@ -284,7 +324,7 @@ export class World {
           const off = (i - 2) * 90
           h.x = FOUNTAIN_POS[team].x + (team === 0 ? 200 : -200) + off * (team === 0 ? 1 : -1)
           h.y = FOUNTAIN_POS[team].y + (team === 0 ? -200 : 200) + off * (team === 0 ? -1 : 1)
-          if (h.h!.isPlayer) this.player = h
+          if (h.h!.isHuman && !this.player) this.player = h
         })
       }
       return
@@ -301,18 +341,18 @@ export class World {
         const off = (i - 2) * 90
         h.x = FOUNTAIN_POS[team].x + (team === 0 ? 200 : -200) + off * (team === 0 ? 1 : -1)
         h.y = FOUNTAIN_POS[team].y + (team === 0 ? -200 : 200) + off * (team === 0 ? -1 : 1)
-        if (h.h!.isPlayer) this.player = h
+        if (h.h!.isHuman) this.player = h
       })
     }
   }
 
-  private makeHero(team: Team, def: HeroDef, lane: Lane, isPlayer: boolean) {
+  private makeHero(team: Team, def: HeroDef, lane: Lane, isHuman: boolean) {
     const u = new Unit(team, 'hero', def.id, def.name, def.radius, {
       maxHp: 600, dmg: def.baseDmg, armor: def.armor, ms: def.ms, range: def.range, bat: def.bat, ap: def.ap, projSpeed: def.projSpeed, hpRegen: 1,
     })
     u.h = new HeroState(def, lane)
-    u.h.isPlayer = isPlayer
-    u.h.pname = isPlayer ? 'You' : this.nameBank.pop() || 'Bot'
+    u.h.isHuman = isHuman
+    u.h.pname = isHuman ? 'You' : this.nameBank.pop() || 'Bot'
     u.lane = lane
     this.recalc(u)
     u.hp = u.st.maxHp
@@ -321,8 +361,8 @@ export class World {
     this.heroes.push(u)
     this.add(u)
     this.spawnCourier(u)
-    if (isPlayer) u.h.items[5] = { def: ITEM_BY_ID['ward'], charges: 2, cdUntil: 0 }
-    if (!isPlayer) {
+    if (isHuman) u.h.items[5] = { def: ITEM_BY_ID['ward'], charges: 2, cdUntil: 0 }
+    if (!isHuman) {
       const st = u.h.abilities
       // bots always learn their first skill
       this.autoLevel(u)
@@ -472,8 +512,9 @@ export class World {
     this.fxs.push({ t0: this.time, ...f } as Fx)
   }
 
-  text(x: number, y: number, text: string, color = '#fff', size = 16) {
-    this.fx({ k: 'text', x, y, text, color, size, t0: this.time, dur: 1.1 })
+  /** Floating combat text. `to` limits who sees it (everyone when absent). */
+  text(x: number, y: number, text: string, color = '#fff', size = 16, to?: Audience) {
+    this.fx({ k: 'text', x, y, text, color, size, t0: this.time, dur: 1.1, to })
   }
 
   after(sec: number, fn: () => void) {
@@ -695,7 +736,7 @@ export class World {
       }
       if (t.kind === 'ancient' && this.time - this.ancientAlert[t.team] > 45) {
         this.ancientAlert[t.team] = this.time
-        this.announce(t.team === (this.player?.team ?? 0) ? 'Your ancient is under attack!' : 'Enemy ancient under attack', '', 1 - t.team)
+        this.announceAbout('ancient_hit', t.team, '', 1 - t.team)
       }
       if (t.isBuilding) {
         this.dangerTimer[t.team] = this.time
@@ -780,18 +821,19 @@ export class World {
       hs.points++
       this.fx({ k: 'ring', x: h.x, y: h.y, r0: 20, r1: 180, color: '#ffd24a', t0: this.time, dur: 0.7, width: 5 })
       this.text(h.x, h.y - 100, 'LEVEL UP!', '#ffd24a', 18)
-      this.emit('levelup', h.x, h.y, hs.isPlayer)
+      this.emit('levelup', h.x, h.y, { hero: h.id })
       this.recalc(h)
-      if (!hs.isPlayer) this.autoLevel(h)
+      if (!hs.isHuman) this.autoLevel(h)
     }
   }
 
   gold(h: Unit, amt: number, show = true) {
     h.h!.gold += Math.round(amt)
     h.h!.earned += Math.round(amt)
-    if (show && h.h!.isPlayer) {
-      this.text(h.x, h.y - 60, `+${Math.round(amt)}`, '#ffd24a', 17)
-      this.emit('gold', h.x, h.y, true)
+    if (show && h.h!.isHuman) {
+      const to = { hero: h.id, only: true }
+      this.text(h.x, h.y - 60, `+${Math.round(amt)}`, '#ffd24a', 17, to)
+      this.emit('gold', h.x, h.y, to)
     }
   }
 
@@ -853,18 +895,18 @@ export class World {
       const g = [120, 140, 160, 180][t.tier]
       for (const h of this.heroes) if (h.team === enemyTeam) this.gold(h, g)
       this.pushFeed(`${t.team === 0 ? 'Radiant' : 'Dire'} ${t.name} destroyed`, enemyTeam)
-      this.emit('tower', t.x, t.y, true)
-      this.announce(t.team === (this.player?.team ?? 0) ? 'Your tower has fallen' : 'Enemy tower destroyed', t.name, enemyTeam)
+      this.emit('tower', t.x, t.y, { all: true })
+      this.announceAbout('tower_down', t.team, t.name, enemyTeam)
       this.updateTowerLocks()
     } else if (t.kind === 'ancient') {
       this.winner = enemyTeam
       this.pushFeed(`${t.team === 0 ? 'Radiant' : 'Dire'} Ancient destroyed!`, enemyTeam)
-      this.announce(enemyTeam === (this.player?.team ?? 0) ? 'Victory!' : 'Defeat', 'The ancient has fallen', undefined, true)
+      this.announceAbout('ancient_down', t.team, 'The ancient has fallen', undefined, true)
     } else if (t.kind === 'hero') {
       const hs = t.h!
       const prevStreak = hs.streak
       hs.deaths++
-      this.emit('death', t.x, t.y, t.team === (this.player?.team ?? 0))
+      this.emit('death', t.x, t.y, { team: t.team })
       hs.respawnAt = this.time + 6 + hs.level * 2.8
       // who gets the credit: the enemy hero that landed the blow; if creeps or a tower did, the last hero that damaged the
       // victim in the last 20s (earlier damagers are assists); nobody recent = every enemy hero shares the bounty
@@ -883,7 +925,7 @@ export class World {
       const countsAsKill = !!killerHero
       if (countsAsKill) hs.streak = 0 // creep/neutral/deny deaths do not end a kill streak
       this.kills[enemyTeam] += denied || neutralKill ? 0 : 1
-      this.emit('kill', t.x, t.y, true)
+      this.emit('kill', t.x, t.y, { all: true })
       const assisters: Unit[] = []
       for (const h of recent) if (h !== killerHero) assisters.push(h)
       if (!denied && !neutralKill) this.heroKillRewards(t, killerHero, recent, prevStreak)
@@ -1114,8 +1156,8 @@ export class World {
     }
     this.wards.push({ id: this.wardId++, x, y, team: u.team, expires: this.time + 180 })
     this.fx({ k: 'ring', x, y, r0: 20, r1: 220, dur: 0.6, color: '#ffe9a8', width: 5 })
-    if (u.team === this.player.team) this.text(x, y - 40, 'Ward placed', '#ffe9a8', 15)
-    this.emit('ward', x, y, u.team === this.player.team)
+    this.text(x, y - 40, 'Ward placed', '#ffe9a8', 15, { team: u.team, only: true })
+    this.emit('ward', x, y, { team: u.team })
     this.computeVision()
   }
 
@@ -1366,7 +1408,7 @@ export class World {
     const mega = this.towers.every((t) => t.team === team || t.tier !== 2 || t.dead)
     if (mega && !this.megaTold[team]) {
       this.megaTold[team] = true
-      this.announce(team === (this.player?.team ?? 0) ? 'Mega creeps are coming!' : 'Enemy mega creeps incoming', 'Barracks destroyed', team, true)
+      this.announceAbout('mega', team, 'Barracks destroyed', team, true)
     }
     const melee = sub === 'melee'
     const hp = mega ? (melee ? 1270 : 1015) : melee ? 550 + 12 * up : 300 + 12 * up
@@ -1617,7 +1659,6 @@ export class World {
 
   private pickRune(h: Unit, r: Rune) {
     const info = RUNE_INFO[r.kind]
-    const you = h.team === this.player?.team
     if (r.kind === 'bounty') {
       const min = this.time / 60
       const gold = Math.round(55 + min * 4)
@@ -1648,7 +1689,7 @@ export class World {
       this.pushFeed(`${this.label(h)} captured the ${info.name} rune`, h.team)
     }
     this.fx({ k: 'ring', x: h.x, y: h.y, r0: 20, r1: 180, dur: 0.6, color: info.color, width: 5 })
-    this.emit(you ? 'rune' : 'gold', h.x, h.y, you)
+    this.emit('rune', h.x, h.y, { team: h.team })
   }
 
   private stepBuffs(u: Unit, dt: number) {
@@ -1697,7 +1738,7 @@ export class World {
       u.forced = null
       u.revealUntil = 0
       this.recalc(u)
-      if (u.h!.isPlayer) this.emit('respawn', u.x, u.y, true)
+      if (u.h!.isHuman) this.emit('respawn', u.x, u.y, { hero: u.id, only: true })
     }
   }
 
@@ -1801,7 +1842,7 @@ export class World {
       if (given) {
         this.text(target.x, target.y - 90, `Hop delivered ${given} item${given > 1 ? 's' : ''}`, '#ffe9a8', 16)
         this.fx({ k: 'ring', x: target.x, y: target.y, r0: 20, r1: 130, dur: 0.5, color: '#ffe9a8', width: 4 })
-        if (target.h!.isPlayer) this.emit('delivery', target.x, target.y, true)
+        if (target.h!.isHuman) this.emit('delivery', target.x, target.y, { hero: target.id, only: true })
       }
     }
   }
@@ -2089,7 +2130,7 @@ export class World {
     }
     if (u.h && d.stealable !== false && d.behavior !== 'passive') u.h.lastCast = { def: d, level: lvl }
     d.cast?.(this, u, lvl, { unit: c.target, x: c.x, y: c.y }, st)
-    this.emit('cast', u.x, u.y, !!u.h?.isPlayer, d.color)
+    this.emit('cast', u.x, u.y, u.h ? { hero: u.id } : undefined, d.color)
     if (u.h) {
       u.h.lastCast = d.stealable === false ? u.h.lastCast : { def: d, level: lvl }
     }

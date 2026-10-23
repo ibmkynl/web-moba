@@ -2,7 +2,7 @@ import type { AbilityDef, Buff } from '../sim/entities'
 import { AbilityState, HeroState, Unit } from '../sim/entities'
 import { HEROES, HERO_BY_ID } from '../sim/heroes'
 import { ITEM_BY_ID } from '../sim/items'
-import { World } from '../sim/world'
+import { World, inAudience, reaches, type Announcement, type Audience } from '../sim/world'
 
 /* ------------------------------------------------------------------ registry */
 
@@ -106,12 +106,21 @@ export interface Snapshot {
   winner: number | null
   nextPower: number
   queue: { h: number; d: string }[][]
+  /** one-shot events, already filtered for the receiving player; sfx[3] = 1 when the event concerns them */
   ev: {
-    sfx: [string, number, number, number, string][]
-    ann: [string, string, number | undefined, boolean][]
+    sfx: [string, number, number, 0 | 1, string][]
+    ann: Announcement[]
     txt: [number, number, string, string, number][]
     vfx: any[]
   }
+}
+
+/** Events collected on the host between two snapshots, still tagged with their audience. */
+export interface HostEvents {
+  sfx: [string, number, number, Audience | undefined, string][]
+  ann: Announcement[]
+  txt: [number, number, string, string, number, Audience | undefined][]
+  vfx: any[]
 }
 
 const EX_KEYS = ['owner', 'liftStart', 'liftEnd', 'delivering', 'color', 'mega', 'noAuto', 'ping', 'tpUntil']
@@ -163,7 +172,7 @@ export function unitSnap(u: Unit): UnitSnap {
       d: h.def.id, lv: h.level, xp: Math.round(h.xp), pt: h.points, g: Math.round(h.gold),
       it: h.items.map((i) => (i ? { i: i.def.id, c: i.charges, cd: +i.cdUntil.toFixed(2) } : null)),
       ab: h.abilities.map(abSnap), sl: h.stolen ? abSnap(h.stolen) : null,
-      k: h.kills, de: h.deaths, as: h.assists, lh: h.lh, dn: h.dn, rs: +h.respawnAt.toFixed(2), pl: h.isPlayer ? 1 : 0, ln: h.lane, sk: h.streak, ea: Math.round(h.earned), hd: Math.round(h.heroDmg), td: Math.round(h.towerDmg), pn: h.pname, tp: h.tpScrolls, tc: +h.tpCd.toFixed(2),
+      k: h.kills, de: h.deaths, as: h.assists, lh: h.lh, dn: h.dn, rs: +h.respawnAt.toFixed(2), pl: h.isHuman ? 1 : 0, ln: h.lane, sk: h.streak, ea: Math.round(h.earned), hd: Math.round(h.heroDmg), td: Math.round(h.towerDmg), pn: h.pname, tp: h.tpScrolls, tc: +h.tpCd.toFixed(2),
     }
   }
   return s
@@ -175,7 +184,7 @@ function stubSnap(u: Unit): UnitSnap {
   return { id: full.id, tm: full.tm, k: full.k, sb: full.sb, nm: full.nm, r: full.r, hid: 1, dead: full.dead, h: full.h, st: { maxHp: u.st.maxHp } as any, hp: full.hp, ex: full.ex }
 }
 
-export function snapshotFor(w: World, team: 0 | 1, meId: number, seq: number, ev: Snapshot['ev']): Snapshot {
+export function snapshotFor(w: World, team: 0 | 1, meId: number, seq: number, ev: HostEvents): Snapshot {
   const vis = w.vis[team]
   const units: UnitSnap[] = []
   for (const u of w.units) {
@@ -198,7 +207,8 @@ export function snapshotFor(w: World, team: 0 | 1, meId: number, seq: number, ev
       draw: p.draw, style: p.style, color: p.color, size: p.size, ph: p.phase, tr: Math.round(p.traveled), rad: p.radius,
     })
   }
-  const courier = w.courierFor(w.heroes.find((h) => h.id === meId) as Unit)
+  const me = w.heroes.find((h) => h.id === meId)
+  const courier = me ? w.courierFor(me) : undefined
   return {
     t: +w.time.toFixed(3), seq, me: meId, units, projs,
     zones: w.zones.map((z) => ({ x: z.x, y: z.y, r: z.r, team: z.team, start: z.start, end: z.end, color: z.color, kind: z.kind, reveal: z.reveal ? 1 : 0, oid: z.owner.id })),
@@ -206,7 +216,12 @@ export function snapshotFor(w: World, team: 0 | 1, meId: number, seq: number, ev
     wards: w.wards.filter((d) => d.team === team).map((d) => ({ id: d.id, x: d.x, y: d.y, team: d.team, expires: d.expires })),
     kills: [w.kills[0], w.kills[1]], feed: w.feed.slice(-8), winner: w.winner, nextPower: w.nextPowerRune,
     queue: [(courier?.extra.queue || []).map((e: any) => ({ h: e.heroId, d: e.def.id })), (courier?.extra.carry || []).map((e: any) => ({ h: e.heroId, d: e.def.id }))],
-    ev,
+    ev: {
+      sfx: ev.sfx.filter((e) => reaches(e[3], me)).map((e) => [e[0], e[1], e[2], inAudience(e[3], me) ? 1 : 0, e[4]]),
+      ann: ev.ann,
+      txt: ev.txt.filter((e) => reaches(e[5], me)).map((e) => [e[0], e[1], e[2], e[3], e[4]]),
+      vfx: ev.vfx,
+    },
   }
 }
 
@@ -404,8 +419,8 @@ export class Replica {
     }
 
     // one-shot events
-    for (const e of snap.ev.sfx) w.onEvent?.(e[0], e[1], e[2], e[3] === team, e[4])
-    for (const a of snap.ev.ann) w.onAnnounce?.(a[0], a[1], a[2], a[3])
+    for (const e of snap.ev.sfx) w.onEvent?.(e[0], e[1], e[2], e[3] ? { all: true } : undefined, e[4])
+    for (const a of snap.ev.ann) w.onAnnounce?.(a)
     for (const t of snap.ev.txt) w.text(t[0], t[1], t[2], t[3], t[4])
     for (const v of snap.ev.vfx) {
       const o: any = { ...v }
@@ -439,7 +454,7 @@ export class Replica {
     h.lh = hs.lh
     h.dn = hs.dn
     h.respawnAt = hs.rs
-    h.isPlayer = !!hs.pl
+    h.isHuman = !!hs.pl
     h.lane = hs.ln as any
     h.streak = hs.sk
     h.pname = hs.pn

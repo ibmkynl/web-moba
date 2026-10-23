@@ -13,7 +13,7 @@ export function aiThink(w: World, u: Unit) {
     case 'tower':
       return towerAI(w, u)
     case 'hero':
-      if (u.h!.isPlayer) {
+      if (u.h!.isHuman) {
         u.nextThink = w.time + 1
         return
       }

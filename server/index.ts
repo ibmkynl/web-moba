@@ -8,7 +8,7 @@ import { HEROES } from '../src/sim/heroes'
 import { Unit } from '../src/sim/entities'
 import { World } from '../src/sim/world'
 import type { Lane } from '../src/sim/constants'
-import { snapshotFor, type Snapshot } from '../src/net/snapshot'
+import { snapshotFor, type HostEvents } from '../src/net/snapshot'
 
 const PORT = Number(process.env.PORT || 8080)
 const STEP = 1 / 60
@@ -122,7 +122,7 @@ let heroOf = new Map<number, Unit>() // pid -> hero unit
 let tickCount = 0
 let seq = 0
 let endAt = 0
-const pending = { sfx: [] as any[], ann: [] as any[], txt: [] as any[] }
+const pending: Omit<HostEvents, 'vfx'> = { sfx: [], ann: [], txt: [] }
 
 function sanitize(o: any): any {
   const out: any = {}
@@ -144,10 +144,11 @@ function startGame() {
   seats.forEach((s, i) => {
     if (s.kind === 'human' && s.pid !== null) heroOf.set(s.pid, w.heroes[i])
   })
-  w.onEvent = (k, x, y, mine, tag) => pending.sfx.push([k, Math.round(x), Math.round(y), mine ? w.player.team : -1, tag || ''])
-  w.onAnnounce = (text, sub, team, epic) => pending.ann.push([text, sub, team, epic])
-  w.text = (x: number, y: number, text: string, color = '#fff', size = 16) => {
-    pending.txt.push([Math.round(x), Math.round(y), text, color, size])
+  // events keep their audience; snapshotFor filters them for each player
+  w.onEvent = (k, x, y, to, tag) => pending.sfx.push([k, Math.round(x), Math.round(y), to, tag || ''])
+  w.onAnnounce = (a) => pending.ann.push(a)
+  w.text = (x, y, text, color = '#fff', size = 16, to) => {
+    pending.txt.push([Math.round(x), Math.round(y), text, color, size, to])
   }
   phase = 'playing'
   tickCount = 0
@@ -171,7 +172,7 @@ function broadcastSnapshots() {
       hero.extra.ping = pl.ping
     }
   }
-  const ev: Snapshot['ev'] = { sfx: pending.sfx as any, ann: pending.ann as any, txt: pending.txt as any, vfx: w.vfxQ.splice(0).map(sanitize) }
+  const ev: HostEvents = { ...pending, vfx: w.vfxQ.splice(0).map(sanitize) }
   seq++
   for (const p of players.values()) {
     const hero = heroOf.get(p.pid)
@@ -407,7 +408,7 @@ wss.on('connection', (ws) => {
       // a disconnected human is replaced by a bot
       const hero = heroOf.get(p.pid)
       if (hero && hero.h) {
-        hero.h.isPlayer = false
+        hero.h.isHuman = false
         hero.extra.noAuto = true
         world.autoLevel(hero)
       }

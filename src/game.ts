@@ -1,7 +1,7 @@
 import { MAP, Pt, dist } from './sim/constants'
 import { freePoint, routeFor } from './sim/nav'
 import type { AbilityState, Unit } from './sim/entities'
-import { World, WorldCfg } from './sim/world'
+import { World, WorldCfg, announcementText, inAudience, reaches, type Announcement } from './sim/world'
 import type { Overlay } from './render/renderer'
 import { Renderer3D } from './render/renderer3d'
 import { Hud } from './ui/hud'
@@ -53,23 +53,26 @@ export class Game {
     this.hud = new Hud(hudRoot, this)
     this.bind()
     this.sfx.init()
-    this.world.onEvent = (k, x, y, mine, tag) => {
+    this.world.onEvent = (k, x, y, to, tag) => {
+      if (!reaches(to, this.player)) return
+      const mine = inAudience(to, this.player)
       const c = this.renderer.cam
       const d = Math.hypot(x - c.x, y - c.y)
       const vol = mine ? 1 : Math.max(0, 1 - d / 2600)
       this.sfx.play(k, vol, tag)
     }
-    this.world.onAnnounce = (text, sub, team, epic) => this.announceLine(text, sub, team, epic)
+    this.world.onAnnounce = (a) => this.announceLine(a)
     this.sfx.startMusic()
     this.last = performance.now()
     this.raf = requestAnimationFrame(this.frame)
   }
 
-  announceLine(text: string, sub: string, team: number | undefined, epic: boolean) {
+  announceLine(a: Announcement) {
     const mine = this.player?.team ?? 0
-    const tone = epic ? 'epic' : team === undefined ? 'neutral' : team === mine ? 'good' : 'bad'
+    const text = announcementText(a, mine)
+    const tone = a.epic ? 'epic' : a.team === undefined ? 'neutral' : a.team === mine ? 'good' : 'bad'
     this.sfx.announce(text, tone)
-    this.hud.banner(text, sub, tone)
+    this.hud.banner(text, a.sub, tone)
   }
 
   /** Leave the match and return to the lobby (hero select). */

@@ -81,7 +81,7 @@ export class TeamBrain {
     const T = this.team
     const now = w.time
     const mine = w.heroes.filter((h) => h.team === T && !h.dead)
-    const bots = mine.filter((h) => !h.h!.isPlayer)
+    const bots = mine.filter((h) => !h.h!.isHuman)
     const foes = w.heroes.filter((h) => h.team !== T && !h.dead)
     for (const e of foes) if (w.isVisible(T, e)) this.seen.set(e.id, { x: e.x, y: e.y, t: now })
     const known = foes.filter((e) => this.knownPos(e, now))

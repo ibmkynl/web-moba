@@ -2,7 +2,7 @@ import { ROCKS, TREES } from '../sim/obstacles'
 import * as THREE from 'three'
 import { MAP, Pt, TEAM_COLOR, Team } from '../sim/constants'
 import type { Unit } from '../sim/entities'
-import { RUNE_INFO, type World } from '../sim/world'
+import { RUNE_INFO, reaches, type World } from '../sim/world'
 import { Overlay, Renderer } from './renderer'
 import { buildTerrain } from './terrain3d'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
@@ -934,7 +934,7 @@ export class Renderer3D {
         this.bar(c, s.x, s.y - 14, wd, 11, u.hp / u.st.maxHp, col)
         if (u.st.maxMana > 0) this.bar(c, s.x, s.y - 3, wd, 6, u.mana / u.st.maxMana, '#4a8ae8')
         // name label (player or bot)
-        const human = u.h!.isPlayer
+        const human = u.h!.isHuman
         const label = (human ? '★ ' : '') + (u.h!.pname || u.name)
         c.font = "800 14px 'Barlow Condensed', sans-serif"
         c.textAlign = 'center'
@@ -993,7 +993,7 @@ export class Renderer3D {
 
     // floating text
     for (const f of w.fxs) {
-      if (f.k !== 'text') continue
+      if (f.k !== 'text' || !reaches(f.to, w.player)) continue
       const k = (w.time - f.t0) / f.dur
       if (k < 0 || k > 1) continue
       const s = S(f.x!, f.y!, 140 + k * 110)

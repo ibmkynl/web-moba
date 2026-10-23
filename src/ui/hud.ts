@@ -492,7 +492,7 @@ export class Hud {
     const fmtK = (n: number) => (n >= 10000 ? (n / 1000).toFixed(1) + 'k' : String(Math.round(n)))
     const row = (h: Unit) => {
       const hs = h.h!
-      const isHuman = hs.isPlayer
+      const isHuman = hs.isHuman
       const mine = h === w.player
       const pname = esc(hs.pname || (mine ? 'You' : 'Player'))
       const ping = h.extra.ping as number | undefined

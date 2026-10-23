@@ -249,7 +249,7 @@ const COUNTERSPELL: AbilityDef = {
       st.extra.csUntil = 0
     }
     // bots react to an incoming targeted spell instantly
-    if (!c.h || c.h.isPlayer || c.dead || c.hasBuff('am_counterspell')) return
+    if (!c.h || c.h.isHuman || c.dead || c.hasBuff('am_counterspell')) return
     const mana = st.def.mana[l - 1]
     if (!w.abilityReady(c, st) || c.mana < mana || c.isSilenced() || c.isStunned()) return
     for (const e of w.enemyHeroesNear(c, 1300)) {
