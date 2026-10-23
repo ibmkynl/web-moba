@@ -145,7 +145,7 @@ const abSnap = (a: AbilityState): AbSnap => ({ i: a.def.id, lv: a.level, cd: +a.
 function unitSnap(u: Unit): UnitSnap {
   const s: UnitSnap = {
     id: u.id, tm: u.team, k: u.kind, sb: u.sub, nm: u.name, r: u.radius,
-    x: +u.x.toFixed(1), y: +u.y.toFixed(1), f: +u.facing.toFixed(2), vx: Math.round(u.vx), vy: Math.round(u.vy),
+    x: Math.round(u.x), y: Math.round(u.y), f: +u.facing.toFixed(2), vx: Math.round(u.vx), vy: Math.round(u.vy),
     hp: Math.round(u.hp), mp: Math.round(u.mana), dead: u.dead ? 1 : 0, dAt: +u.deadAt.toFixed(2), lk: u.locked ? 1 : 0,
     hit: +u.hitAt.toFixed(2), tr: u.tier, ln: u.lane,
   }
@@ -179,19 +179,34 @@ function unitSnap(u: Unit): UnitSnap {
 }
 
 /** Roster-only stub for an enemy hero that the receiving team cannot currently see. */
-function stubSnap(u: Unit): UnitSnap {
-  const full = unitSnap(u)
+function stubSnap(u: Unit, full: UnitSnap): UnitSnap {
   return { id: full.id, tm: full.tm, k: full.k, sb: full.sb, nm: full.nm, r: full.r, hid: 1, dead: full.dead, h: full.h, st: { maxHp: u.st.maxHp } as any, hp: full.hp, ex: full.ex }
 }
 
-export function snapshotFor(w: World, team: 0 | 1, meId: number, seq: number, ev: HostEvents): Snapshot {
+/** Unit records for one host tick, built once and shared by every player's snapshot (stubs too). */
+export class Frame {
+  private full = new Map<Unit, UnitSnap>()
+  private stubs = new Map<Unit, UnitSnap>()
+  unit(u: Unit) {
+    let r = this.full.get(u)
+    if (!r) this.full.set(u, (r = unitSnap(u)))
+    return r
+  }
+  stub(u: Unit) {
+    let r = this.stubs.get(u)
+    if (!r) this.stubs.set(u, (r = stubSnap(u, this.unit(u))))
+    return r
+  }
+}
+
+export function snapshotFor(w: World, team: 0 | 1, meId: number, seq: number, ev: HostEvents, frame = new Frame()): Snapshot {
   const vis = w.vis[team]
   const units: UnitSnap[] = []
   for (const u of w.units) {
     if (u.dead && u.kind === 'creep' && w.time - u.deadAt > 1) continue
     if (u.kind === 'hero') {
-      units.push(u.team === team || vis.has(u.id) ? unitSnap(u) : stubSnap(u))
-    } else if (u.isBuilding || vis.has(u.id) || u.team === team) units.push(unitSnap(u))
+      units.push(u.team === team || vis.has(u.id) ? frame.unit(u) : frame.stub(u))
+    } else if (u.isBuilding || vis.has(u.id) || u.team === team) units.push(frame.unit(u))
   }
   const projs: ProjSnap[] = []
   for (const p of w.projs) {
@@ -222,6 +237,162 @@ export function snapshotFor(w: World, team: 0 | 1, meId: number, seq: number, ev
       txt: ev.txt.filter((e) => reaches(e[5], me)).map((e) => [e[0], e[1], e[2], e[3], e[4]]),
       vfx: ev.vfx,
     },
+  }
+}
+
+/* ------------------------------------------------------------- delta encoding */
+
+/**
+ * Wire format: each player gets only what changed since the last message on their connection (WebSocket is ordered
+ * and reliable, so no acks are needed). `key` marks a full keyframe (join, resume, or a decoder that fell out of step).
+ */
+export interface DeltaSnap {
+  t: number
+  seq: number
+  me: number
+  key?: 1
+  /** changed unit fields by id; `$x` lists removed fields; `h` with `$: 1` is a patch of the hero record */
+  u: any[]
+  /** units no longer sent */
+  gone?: number[]
+  projs: ProjSnap[]
+  ev: Snapshot['ev']
+  /** top-level fields, present only when changed */
+  top?: Partial<Pick<Snapshot, (typeof TOP)[number]>>
+}
+const TOP = ['zones', 'runes', 'wards', 'kills', 'feed', 'winner', 'nextPower', 'queue'] as const
+
+type FieldMap = Map<string, unknown>
+const enc = (v: unknown) => (v === null || typeof v !== 'object' ? v : JSON.stringify(v))
+/** Comparable form of each field (objects as JSON), memoised per record so all players share the work. */
+const fieldCache = new WeakMap<object, FieldMap>()
+function fieldsOf(o: Record<string, any>, skip?: string): FieldMap {
+  let m = fieldCache.get(o)
+  if (!m) {
+    m = new Map()
+    for (const k of Object.keys(o)) if (k !== skip && o[k] !== undefined) m.set(k, enc(o[k]))
+    fieldCache.set(o, m)
+  }
+  return m
+}
+function diff(cur: FieldMap, prev: FieldMap, src: Record<string, any>, out: Record<string, any>) {
+  let n = 0
+  for (const [k, v] of cur) {
+    if (prev.get(k) !== v) {
+      out[k] = src[k]
+      n++
+    }
+  }
+  const gone = [...prev.keys()].filter((k) => !cur.has(k))
+  if (gone.length) {
+    out.$x = gone
+    n++
+  }
+  return n
+}
+
+/** Host side, one per connection: turns full snapshots into deltas against what this player already has. */
+export class SnapshotEncoder {
+  private units = new Map<number, { f: FieldMap; h?: FieldMap }>()
+  private top = new Map<string, unknown>()
+  /** Next message is a keyframe (call on join / resume). */
+  reset() {
+    this.units.clear()
+    this.top.clear()
+  }
+  encode(s: Snapshot): DeltaSnap {
+    const key = this.units.size === 0 && this.top.size === 0
+    const u: any[] = []
+    const seen = new Set<number>()
+    for (const r of s.units) {
+      seen.add(r.id)
+      const f = fieldsOf(r, 'h')
+      const h = r.h ? fieldsOf(r.h) : undefined
+      const prev = this.units.get(r.id)
+      this.units.set(r.id, { f, h })
+      if (!prev) {
+        u.push(r)
+        continue
+      }
+      const d: any = { id: r.id }
+      let n = diff(f, prev.f, r, d)
+      if (h) {
+        if (prev.h) {
+          const hd: any = { $: 1 }
+          if (diff(h, prev.h, r.h!, hd)) {
+            d.h = hd
+            n++
+          }
+        } else {
+          d.h = r.h
+          n++
+        }
+      } else if (prev.h) {
+        ;(d.$x ??= []).push('h')
+        n++
+      }
+      if (n) u.push(d)
+    }
+    const gone: number[] = []
+    for (const id of this.units.keys()) {
+      if (!seen.has(id)) {
+        gone.push(id)
+        this.units.delete(id)
+      }
+    }
+    const top: Record<string, unknown> = {}
+    let nt = 0
+    for (const k of TOP) {
+      const v = enc(s[k])
+      if (this.top.get(k) !== v || key) {
+        this.top.set(k, v)
+        top[k] = s[k]
+        nt++
+      }
+    }
+    const out: DeltaSnap = { t: s.t, seq: s.seq, me: s.me, u, projs: s.projs, ev: s.ev }
+    if (key) out.key = 1
+    if (gone.length) out.gone = gone
+    if (nt) out.top = top
+    return out
+  }
+}
+
+/** Client side: rebuilds full snapshots from deltas. Returns null for a message that cannot be applied. */
+export class SnapshotDecoder {
+  private units = new Map<number, UnitSnap>()
+  private top: Partial<Snapshot> = {}
+  private seq = -1
+  decode(d: DeltaSnap): Snapshot | null {
+    if (d.key) {
+      this.units.clear()
+      this.top = {}
+    } else if (d.seq <= this.seq) return null // stale (from before a resume)
+    this.seq = d.seq
+    for (const r of d.u) {
+      const cur = this.units.get(r.id)
+      if (!cur) {
+        this.units.set(r.id, { ...r })
+        continue
+      }
+      for (const k of Object.keys(r)) {
+        if (k === '$x') continue
+        const v = r[k]
+        if (k === 'h' && v && v.$ === 1 && cur.h) {
+          for (const hk of Object.keys(v)) if (hk !== '$' && hk !== '$x') (cur.h as any)[hk] = v[hk]
+          if (v.$x) for (const hk of v.$x) delete (cur.h as any)[hk]
+        } else (cur as any)[k] = v
+      }
+      if (r.$x) for (const k of r.$x) delete (cur as any)[k]
+    }
+    if (d.gone) for (const id of d.gone) this.units.delete(id)
+    if (d.top) Object.assign(this.top, d.top)
+    const t = this.top as Snapshot
+    return {
+      t: d.t, seq: d.seq, me: d.me, units: [...this.units.values()], projs: d.projs, ev: d.ev,
+      zones: t.zones ?? [], runes: t.runes ?? [], wards: t.wards ?? [], kills: t.kills ?? [0, 0], feed: t.feed ?? [], winner: t.winner ?? null,
+      nextPower: t.nextPower ?? 0, queue: t.queue ?? [[], []],
+    }
   }
 }
 

@@ -63,6 +63,10 @@ export class Game {
     this.world.onAnnounce = (a) => this.announceLine(a)
     this.sfx.startMusic()
     this.last = performance.now()
+    // back from a hidden tab: start timing afresh so the first frame does not jump
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) this.last = performance.now()
+    })
     this.raf = requestAnimationFrame(this.frame)
   }
 

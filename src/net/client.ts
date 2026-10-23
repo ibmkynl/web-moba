@@ -10,6 +10,8 @@ export class NetClient {
   onReset: (() => void) | null = null
   onClose: (() => void) | null = null
   onBusy: (() => void) | null = null
+  /** resume token of the previous connection (this tab), offered to the host on welcome */
+  private prevToken: string | null = null
 
   /** ws url: same host as the page (the host PC serves both), or :8080 when running the vite dev server. */
   static url() {
@@ -34,14 +36,25 @@ export class NetClient {
       ws.onmessage = (e) => {
         const m = JSON.parse(e.data)
         switch (m.t) {
-          case 'welcome':
+          case 'welcome': {
             this.pid = m.pid
+            // a reload or a dropped connection: ask for our hero back (the host ignores unknown tokens)
+            const prev = this.prevToken ?? sessionStorage.getItem('ac-token')
+            sessionStorage.setItem('ac-token', m.token)
+            if (prev && prev !== m.token) {
+              this.prevToken = prev
+              this.send({ t: 'resume', token: prev })
+            } else this.prevToken = null
             break
+          }
           case 'lobby':
             this.lastLobby = m
             this.onLobby?.(m)
             break
           case 'start':
+            // a resumed hero keeps its original token for the next disconnect
+            if (m.resume && this.prevToken) sessionStorage.setItem('ac-token', this.prevToken)
+            this.prevToken = null
             this.onStart?.(m)
             break
           case 'snap':

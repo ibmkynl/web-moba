@@ -11,7 +11,7 @@ import zlib from 'node:zlib'
 import { World } from '../src/sim/world'
 import { STEP } from '../src/sim/constants'
 import { HEROES } from '../src/sim/heroes'
-import { snapshotFor } from '../src/net/snapshot'
+import { Frame, SnapshotDecoder, SnapshotEncoder, snapshotFor } from '../src/net/snapshot'
 
 const minutes = Number(process.argv.find((a) => /^\d+$/.test(a)) ?? 20)
 const PHASES = process.argv.includes('--phases')
@@ -48,6 +48,12 @@ const snapSamples: number[] = []
 const unitCounts: number[] = []
 let snapBytes = 0
 let snapZBytes = 0
+let deltaBytes = 0
+let deltaZBytes = 0
+const encSamples: number[] = []
+const encoder = new SnapshotEncoder()
+const decoder = new SnapshotDecoder()
+let mismatch = 0
 const zSamples: number[] = []
 let snapN = 0
 const ticks = Math.round(minutes * 60 / STEP)
@@ -58,8 +64,23 @@ for (let i = 0; i < ticks && w.winner === null; i++) {
   if (i % 60 === 0) unitCounts.push(w.units.length)
   if (SNAP && i % 3 === 0) {
     const s2 = performance.now()
-    const a = snapshotFor(w, 0, w.heroes[0].id, i, { sfx: [], ann: [], txt: [], vfx: [] })
+    const a = snapshotFor(w, 0, w.heroes[0].id, i, { sfx: [], ann: [], txt: [], vfx: [] }, new Frame())
     const str = JSON.stringify(a)
+    // what the host actually sends: a delta against this player's previous message
+    const s4 = performance.now()
+    const dstr = JSON.stringify(encoder.encode(a))
+    encSamples.push(performance.now() - s4)
+    deltaBytes += dstr.length
+    deltaZBytes += zlib.deflateRawSync(dstr, { level: 3 }).length
+    // round trip check: the decoder must rebuild exactly what a full snapshot would carry
+    const back = decoder.decode(JSON.parse(dstr))!
+    if (snapN % 50 === 0) {
+      // compare content, not key order (the decoder appends patched fields)
+      const sortKeys = (v: any): any =>
+        Array.isArray(v) ? v.map(sortKeys) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().filter((k) => v[k] !== undefined).map((k) => [k, sortKeys(v[k])])) : v
+      const norm = (s: any) => JSON.stringify(sortKeys({ ...s, units: [...s.units].sort((x: any, y: any) => x.id - y.id) }))
+      if (norm(back) !== norm(JSON.parse(str))) mismatch++
+    }
     snapSamples.push(performance.now() - s2)
     snapBytes += str.length
     // what permessage-deflate sends (an upper bound: ws also reuses the window across messages)
@@ -96,6 +117,9 @@ if (SNAP) {
   console.log(`snapshot size avg ${(snapBytes / snapN / 1024).toFixed(1)} KiB x 20 Hz = ${((snapBytes / snapN / 1024) * 20).toFixed(0)} KiB/s per client`)
   console.log(`deflated  avg ${(snapZBytes / snapN / 1024).toFixed(1)} KiB x 20 Hz = ${((snapZBytes / snapN / 1024) * 20).toFixed(0)} KiB/s per client`)
   console.log(row('deflate', zSamples))
+  console.log(`delta     avg ${(deltaBytes / snapN / 1024).toFixed(1)} KiB, deflated ${(deltaZBytes / snapN / 1024).toFixed(1)} KiB x 20 Hz = ${((deltaZBytes / snapN / 1024) * 20).toFixed(0)} KiB/s per client`)
+  console.log(row('encode', encSamples))
+  console.log(`decoder round trip mismatches: ${mismatch} of ${Math.ceil(snapN / 50)} checked`)
 }
 if (PHASES) {
   const total = samples.reduce((a, b) => a + b, 0)
