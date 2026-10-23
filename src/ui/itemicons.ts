@@ -161,6 +161,15 @@ const ICONS: Record<string, string> = {
     <path d="M20 6h16l2 22 14 8c4 2 6 5 6 9v6H18V28z" fill="url(#vb)" stroke="#0e2a6a" stroke-width="2.2" stroke-linejoin="round"/>
     <path d="M18 49h40" stroke="#0e2a6a" stroke-width="2"/><path d="M4 22l10 4M2 32h12M6 42l8-3" stroke="#aee6ff" stroke-width="3" stroke-linecap="round"/>
     <path d="M32 14l4 6-4 6-4-6z" fill="#fff" opacity=".9"/><path d="M42 36l3 4-3 4" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/>`,
+  // morbid mask: a pale skull-faced mask with red eyes
+  morbid: `<defs><radialGradient id="mm" cx=".4" cy=".3" r=".9"><stop offset="0" stop-color="#f4eee0"/><stop offset="1" stop-color="#8a7a66"/></radialGradient><filter id="mmg"><feGaussianBlur stdDeviation="2.5"/></filter></defs>
+    <ellipse cx="32" cy="32" rx="24" ry="26" fill="#d8283a" opacity=".35" filter="url(#mmg)"/>
+    <path d="M32 5c14 0 22 9 22 22 0 8-3 13-8 16v9H18v-9c-5-3-8-8-8-16C10 14 18 5 32 5z" fill="url(#mm)" stroke="#3a2a1c" stroke-width="2.2" stroke-linejoin="round"/>
+    <path d="M16 24c4-3 10-2 13 2-2 5-9 6-13 2zM48 24c-4-3-10-2-13 2 2 5 9 6 13 2z" fill="#2a0a10" stroke="#1a0408" stroke-width="1.4"/>
+    <circle cx="23" cy="26" r="2.6" fill="#ff3a4a"/><circle cx="41" cy="26" r="2.6" fill="#ff3a4a"/>
+    <path d="M29 34l3 6 3-6z" fill="#3a2a1c"/>
+    <path d="M22 50v-5M28 50v-6M34 50v-6M40 50v-5" stroke="#3a2a1c" stroke-width="2" stroke-linecap="round"/>
+    <path d="M32 9v9" stroke="#b8324a" stroke-width="2.4" stroke-linecap="round"/>`,
   // blink dagger: glowing blue dagger with a swoosh
   blink: `<defs>${steel('ks')}<filter id="kg"><feGaussianBlur stdDeviation="2.5"/></filter></defs>
     <path d="M6 50c10-4 20-10 30-22" stroke="#6ab0ff" stroke-width="5" stroke-linecap="round" fill="none" opacity=".55" filter="url(#kg)"/>

@@ -99,6 +99,9 @@ export interface Snapshot {
   zones: any[]
   runes: any[]
   wards: any[]
+  /** team vision spots and pings of the receiving team */
+  vs: { x: number; y: number; r: number; u: number }[]
+  pings: any[]
   kills: [number, number]
   feed: any[]
   winner: number | null
@@ -229,6 +232,8 @@ export function snapshotFor(w: World, team: 0 | 1, meId: number, seq: number, ev
     zones: w.zones.map((z) => ({ x: z.x, y: z.y, r: z.r, team: z.team, start: z.start, end: z.end, color: z.color, kind: z.kind, reveal: z.reveal ? 1 : 0, oid: z.owner.id })),
     runes: w.runes.map((r) => ({ id: r.id, kind: r.kind, x: r.x, y: r.y, at: r.at })),
     wards: w.wards.filter((d) => d.team === team).map((d) => ({ id: d.id, x: d.x, y: d.y, team: d.team, expires: d.expires })),
+    vs: w.visionSpots.filter((v) => v.team === team && v.until > w.time).map((v) => ({ x: Math.round(v.x), y: Math.round(v.y), r: v.r, u: +v.until.toFixed(2) })),
+    pings: w.pings.filter((p) => p.team === team).map((p) => ({ id: p.id, x: Math.round(p.x), y: Math.round(p.y), kind: p.kind, owner: p.owner, hero: p.hero, target: p.target, t0: +p.t0.toFixed(2), until: +p.until.toFixed(2), human: p.human })),
     kills: [w.kills[0], w.kills[1]], feed: w.feed.slice(-8), winner: w.winner, nextPower: w.nextPowerRune,
     queue: [(courier?.extra.queue || []).map((e: any) => ({ h: e.heroId, d: e.def.id })), (courier?.extra.carry || []).map((e: any) => ({ h: e.heroId, d: e.def.id }))],
     ev: {
@@ -260,7 +265,7 @@ export interface DeltaSnap {
   /** top-level fields, present only when changed */
   top?: Partial<Pick<Snapshot, (typeof TOP)[number]>>
 }
-const TOP = ['zones', 'runes', 'wards', 'kills', 'feed', 'winner', 'nextPower', 'queue'] as const
+const TOP = ['zones', 'runes', 'wards', 'vs', 'pings', 'kills', 'feed', 'winner', 'nextPower', 'queue'] as const
 
 type FieldMap = Map<string, unknown>
 const enc = (v: unknown) => (v === null || typeof v !== 'object' ? v : JSON.stringify(v))
@@ -390,7 +395,7 @@ export class SnapshotDecoder {
     const t = this.top as Snapshot
     return {
       t: d.t, seq: d.seq, me: d.me, units: [...this.units.values()], projs: d.projs, ev: d.ev,
-      zones: t.zones ?? [], runes: t.runes ?? [], wards: t.wards ?? [], kills: t.kills ?? [0, 0], feed: t.feed ?? [], winner: t.winner ?? null,
+      zones: t.zones ?? [], runes: t.runes ?? [], wards: t.wards ?? [], vs: t.vs ?? [], pings: t.pings ?? [], kills: t.kills ?? [0, 0], feed: t.feed ?? [], winner: t.winner ?? null,
       nextPower: t.nextPower ?? 0, queue: t.queue ?? [[], []],
     }
   }
@@ -548,6 +553,7 @@ export class Replica {
     }
     const me = byId.get(snap.me)
     if (me) w.player = me
+    w.syncNav() // the minimap route avoids standing buildings too
     // visibility for the receiving team
     const team = me ? me.team : 0
     w.vis[team as 0 | 1] = visIds
@@ -580,6 +586,8 @@ export class Replica {
     w.zones = snap.zones.map((z) => ({ ...z, owner: byId.get(z.oid) as Unit, reveal: !!z.reveal }))
     w.runes = snap.runes
     w.wards = snap.wards
+    w.visionSpots = (snap.vs || []).map((v) => ({ team: team as 0 | 1, x: v.x, y: v.y, r: v.r, until: v.u }))
+    w.pings = (snap.pings || []).map((p) => ({ ...p, team: team as 0 | 1 }))
     const meU = w.heroes.find((h) => h.id === snap.me)
     const cq = meU ? w.courierFor(meU) : undefined
     if (cq) {

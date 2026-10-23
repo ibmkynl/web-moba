@@ -3,6 +3,7 @@ import type { HeroState, Stats, Unit } from './entities'
 import type { TeamBrain, TeamOrder } from './team'
 import type { World } from './world'
 import { ITEM_BY_ID } from './items'
+import { LATE_BUILD } from './recommend'
 
 export function aiThink(w: World, u: Unit) {
   switch (u.kind) {
@@ -304,12 +305,6 @@ function botShop(w: World, u: Unit, b: Brain) {
   if (!salve && h.gold > 400) w.buyItem(u, 'salve')
 }
 
-const LATE_BUILD: Record<string, string[]> = {
-  str: ['bkb', 'heart', 'cuirass', 'shiva', 'skadi'],
-  agi: ['bkb', 'butterfly', 'cuirass', 'skadi', 'refresher'],
-  int: ['scepter', 'bkb', 'shiva', 'refresher', 'force'],
-  all: ['bkb', 'scepter', 'shiva', 'skadi'],
-}
 
 function lateShopping(w: World, u: Unit, b: Brain) {
   const h = u.h!

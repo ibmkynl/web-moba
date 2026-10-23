@@ -120,6 +120,7 @@ export class Game {
         this.onEnd?.(w.winner)
       }
     }
+    this.soundPings()
     this.updateCamera(dt)
     this.updateHover()
     this.updateRoute()
@@ -320,7 +321,11 @@ export class Game {
     c.addEventListener('mousedown', (e) => {
       this.screenMouse = { x: e.clientX, y: e.clientY }
       this.mouse = this.renderer.toWorld(e.clientX, e.clientY)
-      if (e.button === 0 && !e.ctrlKey) {
+      if (e.button === 0 && e.altKey && !this.targeting) {
+        // Alt + click: team ping (location, enemy, own/enemy building, ally)
+        this.mouse = this.renderer.pickGround(e.clientX, e.clientY)
+        this.pingHere()
+      } else if (e.button === 0 && !e.ctrlKey) {
         if (this.targeting) this.leftClick()
         else this.drag = { sx: e.clientX, sy: e.clientY, anchor: this.mouse, moved: false }
       } else if (e.button === 2 || (e.button === 0 && e.ctrlKey)) {
@@ -393,7 +398,8 @@ export class Game {
         this.api.hold()
         this.moveGoal = null
         break
-      case 'Quote':
+      case 'Digit1':
+      case 'Numpad1':
         this.camLocked = true
         this.renderer.cam = { x: p.x, y: p.y }
         break
@@ -486,6 +492,31 @@ export class Game {
   toggleCamLock() {
     this.camLocked = !this.camLocked
     this.hud.toast(this.camLocked ? 'Camera locked to hero' : 'Camera free — edge scroll / arrows')
+  }
+
+  /** Alt + click: ping what is under the cursor (a unit, or the ground). */
+  private pingHere() {
+    if (this.player.dead) return
+    const t = this.hud.mouseOverUi ? null : this.pick()
+    this.api.ping(this.mouse.x, this.mouse.y, t)
+  }
+
+  /** Alt + click on the minimap. */
+  minimapPing(x: number, y: number) {
+    if (this.player.dead) return
+    this.api.ping(x, y, null)
+  }
+
+  /** Play a sound once for every ping that appeared (own, a teammate's or a bot's). */
+  private pingSeen = new Set<number>()
+  private soundPings() {
+    const pings = this.world.pings
+    for (const p of pings) {
+      if (this.pingSeen.has(p.id)) continue
+      this.pingSeen.add(p.id)
+      this.sfx.play('ping', p.owner === this.player.id ? 0.8 : 1, p.kind)
+    }
+    if (this.pingSeen.size > 60) for (const id of this.pingSeen) if (!pings.some((p) => p.id === id)) this.pingSeen.delete(id)
   }
 
   marker(p: Pt, color: string) {

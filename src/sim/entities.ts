@@ -65,6 +65,8 @@ export interface Stats {
   block: number
   projSpeed: number
   dmgReduce: number
+  /** fraction of physical attack damage returned as health (0.18 = 18%) */
+  lifesteal: number
 }
 
 export interface CastTarget {
@@ -154,6 +156,8 @@ export interface ItemDef {
     bootMs: number
     /** health regeneration as % of max health per second */
     hpRegenPct: number
+    /** fraction of physical attack damage healed (0.18 = 18%) */
+    lifesteal: number
   }>
   consumable?: boolean
   active?: 'salve' | 'clarity' | 'blink' | 'ward' | 'tp' | 'bkb' | 'shiva' | 'refresher' | 'force' | 'phase'
@@ -237,7 +241,8 @@ export class HeroState {
 }
 
 export type Order =
-  | { t: 'idle' }
+  /** holdFire: set by the Stop command, the unit stays passive instead of auto-attacking nearby enemies until it gets a new order */
+  | { t: 'idle'; holdFire?: boolean }
   | { t: 'move'; x: number; y: number }
   | { t: 'attack'; target: Unit; auto?: boolean }
   | { t: 'amove'; x: number; y: number; target?: Unit | null }
@@ -382,6 +387,7 @@ export class Unit {
       block: 0,
       projSpeed: base.projSpeed,
       dmgReduce: 0,
+      lifesteal: 0,
     }
   }
   get isBuilding() {

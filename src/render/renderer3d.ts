@@ -504,9 +504,10 @@ export class Renderer3D {
       // living-model animation hook
       m.update?.(t, { moving, casting: !!u.casting, attacking: !!u.attackWind })
       this.unitFx(e, u, t, s0)
-      // dying heroes fade out, invisible heroes are translucent; respawned / visible ones get their materials back
+      this.updateShell(e, u, t, s0)
+      // dying heroes fade out, invisible heroes are translucent (more solid for an enemy revealed by a ward); respawned / visible ones get their materials back
       const inv = u.kind === 'hero' && u.isInvisible(t)
-      this.setFade(e, deathK > 0 ? 1 - deathK * 0.9 : inv ? 0.32 : 1)
+      this.setFade(e, deathK > 0 ? 1 - deathK * 0.9 : inv ? (u.team === this.myTeam ? 0.32 : 0.6) : 1)
     }
     for (const [id, e] of this.entries) {
       if (!seen.has(id)) {
@@ -562,7 +563,6 @@ export class Renderer3D {
     e.fxT = t
     const ids = new Set(u.buffs.map((b) => b.id))
     for (const id of e.seen) if (!ids.has(id)) e.seen.delete(id)
-    let shellCol: string | null = null
     for (const b of u.buffs) {
       const col = b.color || (b.stun ? '#ffe36a' : b.slow ? '#8ad8ff' : b.silence ? '#c8a0ff' : b.root ? '#6aff6a' : b.dot ? '#ff8a4a' : '#ffffff')
       if (!e.seen.has(b.id)) {
@@ -574,7 +574,6 @@ export class Renderer3D {
         if (b.root) this.vfx.spawn({ name: 'spikes', x: u.x, y: u.y, r: 55, count: 9, size: 90, dur: Math.max(0.8, b.expires - t), color: col })
         if (b.stun) this.vfx.spawn({ name: 'flash', x: u.x, y: u.y, z: H, color: col, size: 120, dur: 0.25 })
       }
-      if (b.invuln || b.immune || b.spellBlock || b.lift || b.ethereal) shellCol = b.color || (b.spellBlock ? '#bff0ff' : b.ethereal ? '#d8f0ff' : '#ffe9a8')
       if (!heroish) continue
       if (b.slow) this.vfx.spawn({ name: 'aura', kind: 'frost', unit: u, x: u.x, y: u.y, z: 10, dur: 0.3, color: '#bfe8ff' }, this.posOf)
       if (b.dot) this.vfx.spawn({ name: 'aura', kind: 'fire', unit: u, x: u.x, y: u.y, dur: 0.3, color: col, color2: '#ff4a20' }, this.posOf)
@@ -583,19 +582,50 @@ export class Renderer3D {
       if (b.regenHp && b.regenHp > 4) this.vfx.spawn({ name: 'sparkle', x: u.x, y: u.y, z: H * 0.5, color: '#7aff9a', count: 4, r: 40 })
       if (b.dmgMul) this.vfx.spawn({ name: 'aura', kind: 'fire', unit: u, x: u.x, y: u.y, dur: 0.3, color: '#ff6a3a', color2: '#ffcf5a' }, this.posOf)
     }
-    // protective shell
-    if (shellCol) {
-      if (!e.shell) {
-        e.shell = new THREE.Mesh(
-          new THREE.SphereGeometry(u.radius * 1.9, 18, 14),
-          new THREE.MeshBasicMaterial({ color: shellCol, transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false }),
-        )
-        e.model.group.add(e.shell)
-        e.shell.position.y = H * 0.45 / s0
-      }
-      ;(e.shell.material as THREE.MeshBasicMaterial).color.set(shellCol)
-      e.shell.visible = true
-    } else if (e.shell) e.shell.visible = false
+  }
+
+  /**
+   * Protective bubble. A unit that cannot be attacked (invulnerable, lifted, ethereal) is wrapped in a bright glowing bubble with
+   * a pulsing rim; spell immunity / spell block get a fainter one. Updated every frame so it pulses smoothly.
+   */
+  private updateShell(e: Entry, u: Unit, t: number, s0: number) {
+    let col: string | null = null
+    let strong = false
+    for (const b of u.buffs) {
+      if (b.invuln || b.lift || b.ethereal) {
+        col = b.color || (b.ethereal ? '#d8f0ff' : '#ffe9a8')
+        strong = true
+      } else if ((b.immune || b.spellBlock) && !strong) col = b.color || (b.spellBlock ? '#bff0ff' : '#ffe9a8')
+    }
+    if (!col) {
+      if (e.shell) e.shell.visible = false
+      return
+    }
+    if (!e.shell) {
+      const mat = new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        uniforms: { uColor: { value: new THREE.Color(col) }, uTime: { value: 0 }, uStr: { value: 1 } },
+        vertexShader: 'varying vec3 vN; varying vec3 vV; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }',
+        fragmentShader:
+          'uniform vec3 uColor; uniform float uTime; uniform float uStr; varying vec3 vN; varying vec3 vV; void main(){ float f = 1.0 - abs(dot(normalize(vN), normalize(vV))); float rim = pow(f, 2.0); float pulse = 0.82 + 0.18 * sin(uTime * 4.0); gl_FragColor = vec4(uColor * (0.9 + 1.8 * rim) * pulse, (0.3 + 0.7 * rim) * uStr); }',
+      })
+      e.shell = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 20), mat)
+      e.shell.renderOrder = 5
+      e.model.group.add(e.shell)
+    }
+    const H = e.model.height * s0
+    // cover the whole body: radius from the model height (world units), converted to the model's local scale
+    const R = Math.max(u.radius * 1.9, H * 0.68) * (strong ? 1 : 0.92)
+    const sh = e.shell
+    sh.scale.setScalar((R / s0) * (1 + 0.025 * Math.sin(t * 4)))
+    sh.position.y = (H * 0.5) / s0
+    const mat = sh.material as THREE.ShaderMaterial
+    mat.uniforms.uColor.value.set(col)
+    mat.uniforms.uTime.value = t
+    mat.uniforms.uStr.value = strong ? 1 : 0.5
+    sh.visible = true
   }
 
   /* ------------------------------------------------------------ projectiles */
@@ -1034,6 +1064,7 @@ export class Renderer3D {
     }
 
     this.drawFog(c)
+    this.drawPings(c)
 
     // night tint + vignette
     const night = w.nightAmount()
@@ -1063,6 +1094,56 @@ export class Renderer3D {
     c.fillRect(x - wd / 2, y, wd * Math.max(0, Math.min(1, f)), ht * 0.4)
   }
 
+  /**
+   * Team pings on the terrain: Dota-style expanding / converging rings in the colour of the player who pinged, with a light
+   * column. No icon and no off-screen arrow: the minimap shows who pinged and where.
+   */
+  private drawPings(c: CanvasRenderingContext2D) {
+    const w = this.w
+    if (!w.pings.length) return
+    const lw = (px: number) => px / Math.max(0.2, Math.hypot(this.A.ax, this.A.ay))
+    for (const p of w.pings) {
+      if (p.team !== this.myTeam) continue
+      const col = w.pingColor(p)
+      const age = w.time - p.t0
+      const fade = Math.max(0, Math.min(1, (p.until - w.time) / 0.5)) * Math.min(1, 0.25 + age / 0.1)
+      this.groundT(c)
+      for (let i = 0; i < 3; i++) {
+        const k = (age * 0.85 + i / 3) % 1
+        const inward = i === 2
+        const r = inward ? 60 + 280 * (1 - k) : 60 + k * 300
+        c.globalAlpha = fade * (inward ? 0.25 + 0.6 * k : 1 - k)
+        c.beginPath()
+        c.arc(p.x, p.y, r, 0, Math.PI * 2)
+        c.strokeStyle = col
+        c.lineWidth = lw(inward ? 3 : 4.5 * (1 - k) + 1.5)
+        c.stroke()
+      }
+      c.globalAlpha = fade * 0.22
+      c.beginPath()
+      c.arc(p.x, p.y, 62, 0, Math.PI * 2)
+      c.fillStyle = col
+      c.fill()
+      // light column rising from the spot
+      this.screenT(c)
+      const ground = this.toScreen(p.x, p.y, 0)
+      const top = this.toScreen(p.x, p.y, 260)
+      if (ground.x > -1e4) {
+        const g = c.createLinearGradient(0, ground.y, 0, top.y)
+        g.addColorStop(0, col)
+        g.addColorStop(1, 'rgba(255,255,255,0)')
+        c.globalAlpha = fade * 0.55
+        c.strokeStyle = g
+        c.lineWidth = 6
+        c.beginPath()
+        c.moveTo(ground.x, ground.y)
+        c.lineTo(top.x, top.y)
+        c.stroke()
+      }
+      c.globalAlpha = 1
+    }
+  }
+
   private drawFog(c: CanvasRenderingContext2D) {
     const w = this.w
     const { fctx, fog } = this
@@ -1086,6 +1167,7 @@ export class Renderer3D {
     for (const u of w.units) if (u.team === this.myTeam && !u.dead) punch(u.x, u.y, w.visionOf(u))
     for (const z of w.zones) if (z.reveal && z.team === this.myTeam && w.time >= z.start) punch(z.x, z.y, z.r + 100)
     for (const wd of w.wards) if (wd.team === this.myTeam) punch(wd.x, wd.y, 1600)
+    for (const sp of w.visionSpots) if (sp.team === this.myTeam && sp.until > w.time) punch(sp.x, sp.y, sp.r)
     fctx.globalCompositeOperation = 'source-over'
     c.imageSmoothingEnabled = true
     c.drawImage(fog, 0, 0, this.W, this.H)

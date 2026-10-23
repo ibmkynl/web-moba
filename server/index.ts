@@ -258,7 +258,8 @@ function command(p: Player, m: any) {
       if (t) w.orderAttack(h, t)
       break
     }
-    case 'stop': w.orderStop(h); break
+    case 'stop': w.orderStop(h, true); break
+    case 'ping': w.ping(h, num(m.x), num(m.y), m.tid ? num(m.tid) : undefined); break
     case 'hold': w.orderHold(h); break
     case 'cast': {
       const i = num(m.i, -1)

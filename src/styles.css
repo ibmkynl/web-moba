@@ -3480,3 +3480,179 @@ kbd {
 .hslot .mini:hover {
   border-color: #000;
 }
+
+/* ===== recommended item row (above the inventory) ===== */
+.recrow {
+  display: flex;
+  align-items: stretch;
+  gap: 5px;
+  margin-bottom: 6px;
+}
+.recicon {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  background: #0e1014;
+  border: 2px solid #000;
+  box-shadow: 0 0 0 1px #6a5a2a, inset 0 0 8px rgba(0, 0, 0, 0.7);
+  cursor: pointer;
+}
+.recicon svg {
+  width: 100%;
+  height: 100%;
+  padding: 2px;
+}
+.recicon:hover {
+  box-shadow: 0 0 0 1px var(--gold3), 0 0 8px rgba(240, 213, 138, 0.45), inset 0 0 8px rgba(0, 0, 0, 0.7);
+}
+.recbuy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 0 7px;
+  background: linear-gradient(180deg, #3a3018, #1c1608);
+  border: 1px solid var(--gold2);
+  color: var(--gold3);
+  font-family: var(--cond);
+  cursor: pointer;
+  text-align: left;
+}
+.recbuy .rn {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.recbuy .rp {
+  font-size: 13px;
+  font-weight: 800;
+  color: #ffd24a;
+  line-height: 1.1;
+}
+.recbuy.poor .rp {
+  color: #ff9a8a;
+}
+.recbuy:hover:not(:disabled) {
+  border-color: var(--gold3);
+  color: #fff;
+}
+.recbuy:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.recauto {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 0 3px;
+  font: 700 12px 'Barlow Condensed', sans-serif;
+  color: var(--gold3);
+  cursor: pointer;
+  user-select: none;
+}
+.recauto input {
+  margin: 0;
+  width: 16px;
+  height: 16px;
+  accent-color: #e8b83a;
+  cursor: pointer;
+}
+.tip .need b {
+  color: #ff9a8a;
+}
+.tip .afford {
+  color: #8fe08f;
+}
+
+/* ===== shop sits above the recommended-item row and always fits the window: when the items do not fit, the list scrolls ===== */
+#shop {
+  bottom: 232px;
+  max-height: calc(100vh - 242px);
+  display: flex;
+  flex-direction: column;
+}
+#shop .grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding-right: 3px;
+  scrollbar-width: thin;
+  scrollbar-color: #8a7a4a rgba(0, 0, 0, 0.35);
+}
+#shop .grid::-webkit-scrollbar {
+  width: 6px;
+}
+#shop .grid::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.35);
+}
+#shop .grid::-webkit-scrollbar-thumb {
+  background: #8a7a4a;
+  border-radius: 3px;
+}
+
+/* ===== stats window: the table always fits the window, so it never needs scroll bars ===== */
+#score {
+  width: min(1160px, calc(100vw - 24px));
+  overflow: visible;
+  box-sizing: border-box;
+}
+@media (max-height: 640px) {
+  /* only a very short window scrolls the stats */
+  #score {
+    max-height: calc(100vh - 90px);
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+}
+#score table.st {
+  table-layout: fixed;
+  width: 100%;
+}
+#score table.st th,
+#score table.st td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: 3px;
+  padding-right: 3px;
+}
+#score table.st td.hp {
+  min-width: 0;
+}
+#score table.st td.items {
+  min-width: 0;
+  white-space: nowrap;
+}
+#score .si {
+  width: calc(16.66% - 3px);
+  height: auto;
+  aspect-ratio: 34 / 26;
+}
+#score table.st td.hp {
+  display: table-cell;
+  vertical-align: middle;
+}
+#score table.st td.hp i {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+#score table.st td.hp div {
+  display: inline-block;
+  vertical-align: middle;
+  max-width: calc(100% - 56px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

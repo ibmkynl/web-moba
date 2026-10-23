@@ -140,7 +140,8 @@ export const TOWER_ARCS: Record<Lane, number[]> = {
 export const T3_POS: Record<Lane, Pt> = {
   top: { x: 1380, y: 6950 },
   mid: { x: 2150, y: 6950 },
-  bot: { x: 2900, y: 8260 },
+  // same offset from the ramp as the top tower: 350 inside the cliff line, just beside the ramp edge (the old spot sat 54 from the cliff end)
+  bot: { x: 2650, y: 8220 },
 }
 /** Tier 4 towers beside the ancient (Radiant coordinates; mirrored for Dire). */
 export const T4_POS: Pt[] = [

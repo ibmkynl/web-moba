@@ -1,6 +1,6 @@
 import { Lane, LANES, PATHS, Pt, Team, dist } from './constants'
 import type { Unit } from './entities'
-import type { World } from './world'
+import type { Ping, World } from './world'
 
 export interface TeamOrder {
   kind: 'push' | 'defend' | 'gank' | 'rescue'
@@ -22,6 +22,10 @@ interface Plan {
   lane?: Lane
   towerId?: number
   phase?: 'rally' | 'go'
+  /** set by a human's ping: the bots drop everything and come, from anywhere on the map */
+  pinged?: boolean
+  /** a rescue plan that follows this ally */
+  followId?: number
 }
 
 /** Rough combat value of a hero: health, level and damage output. */
@@ -42,11 +46,43 @@ export class TeamBrain {
   focusUntil = 0
   mia = 0
   lastPlanKind = ''
+  private lastBotPing = -99
 
   constructor(public team: Team) {}
 
   orderFor(u: Unit): TeamOrder | null {
     return this.orders.get(u.id) ?? null
+  }
+
+  /** A teammate pinged (Alt + click): turn it into a team plan the bots follow. */
+  onPing(w: World, p: Ping) {
+    const now = w.time
+    const tgt = p.target ? w.units.find((u) => u.id === p.target) : undefined
+    let plan: Plan
+    if (p.kind === 'enemy' && tgt && tgt.kind === 'hero') {
+      this.seen.set(tgt.id, { x: tgt.x, y: tgt.y, t: now })
+      this.focusId = tgt.id
+      this.focusUntil = now + 8
+      plan = { kind: 'gank', started: now, until: now + 12, x: tgt.x, y: tgt.y, targetId: tgt.id, pinged: true }
+    } else if (p.kind === 'attack' && tgt) {
+      plan = { kind: 'push', started: now, until: now + 35, x: tgt.x, y: tgt.y, lane: tgt.lane ?? undefined, phase: 'go', towerId: tgt.id, pinged: true }
+    } else if (p.kind === 'help' && tgt) {
+      plan = { kind: 'rescue', started: now, until: now + 12, x: tgt.x, y: tgt.y, followId: tgt.id, pinged: true }
+    } else {
+      // location, own building or a non-hero enemy: everyone attack-moves there and holds the spot
+      plan = { kind: 'defend', started: now, until: now + (p.kind === 'defend' ? 15 : 10), x: p.x, y: p.y, pinged: true }
+    }
+    this.plan = plan
+    this.assign(w, w.heroes.filter((h) => h.team === this.team && !h.dead && !h.h!.isHuman), [])
+  }
+
+  /** Bots call out their plan with a ping so the human team sees what they are about to do. */
+  private botPing(w: World, bots: Unit[], p: Plan, targetId?: number) {
+    if (w.time - this.lastBotPing < 10) return
+    const who = bots.filter((b) => b.id !== targetId && !b.dead).sort((a, b) => dist(a, p) - dist(b, p))[0]
+    if (!who) return
+    this.lastBotPing = w.time
+    w.ping(who, p.x, p.y, targetId)
   }
 
   focus(w: World): Unit | null {
@@ -116,13 +152,31 @@ export class TeamBrain {
           p.y = pos.y
         }
       }
-      if ((p.kind === 'defend' || p.kind === 'rescue') && ok) {
+      if (p.followId !== undefined && ok) {
+        const f = w.heroes.find((h) => h.id === p.followId)
+        if (!f || f.dead) ok = false
+        else {
+          p.x = f.x
+          p.y = f.y
+        }
+      }
+      if ((p.kind === 'defend' || p.kind === 'rescue') && ok && !p.pinged) {
         const near = known.filter((e) => dist(this.knownPos(e, now)!, p) < 1800)
         if (near.length === 0 && now - p.started > 4) ok = false
       }
       if (!ok) this.plan = null
     }
-    if (!this.plan) this.plan = this.choose(w, mine, bots, known)
+    if (!this.plan) {
+      this.plan = this.choose(w, mine, bots, known)
+      const np = this.plan
+      if (np) {
+        // call the plan out: rescue -> the endangered ally, defend -> the building, gank -> the victim, push -> the tower to hit
+        if (np.kind === 'rescue') this.botPing(w, bots, np, np.followId)
+        else if (np.kind === 'defend') this.botPing(w, bots, np, w.towers.find((t) => t.team === T && !t.dead && dist(t, np) < 260)?.id)
+        else if (np.kind === 'gank') this.botPing(w, bots, np, np.targetId)
+        else if (np.kind === 'push') this.botPing(w, bots, np, np.towerId)
+      }
+    }
     this.assign(w, bots, mine)
   }
 
@@ -140,7 +194,7 @@ export class TeamBrain {
       if (a.hp < a.st.maxHp * 0.45 && now - a.lastDamagedByHero < 2.5) {
         const p = { x: a.x, y: a.y }
         if (known.some((e) => dist(kp(e), p) < 1400) && powerNear(p, 4500, 'ally') >= powerNear(p, 1600, 'foe') * 0.9) {
-          return { kind: 'rescue', started: now, until: now + 9, x: p.x, y: p.y }
+          return { kind: 'rescue', started: now, until: now + 9, x: p.x, y: p.y, followId: a.id }
         }
       }
     }
@@ -221,18 +275,18 @@ export class TeamBrain {
     }
     if (p.kind === 'defend' || p.kind === 'rescue') {
       give(
-        bots.filter((b) => dist(b, p) < 5500 && b.hp > b.st.maxHp * 0.35),
+        bots.filter((b) => (p.pinged || dist(b, p) < 5500) && b.hp > b.st.maxHp * (p.pinged ? 0.25 : 0.35)),
         { kind: p.kind, x: p.x, y: p.y },
       )
     } else if (p.kind === 'gank') {
       const helpers = bots
-        .filter((b) => b.hp > b.st.maxHp * 0.55 && dist(b, p) < 3400)
+        .filter((b) => b.hp > b.st.maxHp * (p.pinged ? 0.35 : 0.55) && (p.pinged || dist(b, p) < 3400))
         .sort((a, b) => dist(a, p) - dist(b, p))
-        .slice(0, 3)
+        .slice(0, p.pinged ? 5 : 3)
       give(helpers, { kind: 'gank', x: p.x, y: p.y, targetId: p.targetId })
     } else if (p.kind === 'push') {
-      const squad = bots.filter((b) => b.hp > b.st.maxHp * 0.5)
-      if (squad.length < 2) {
+      const squad = bots.filter((b) => b.hp > b.st.maxHp * (p.pinged ? 0.35 : 0.5))
+      if (squad.length < (p.pinged ? 1 : 2)) {
         this.plan = null
         return
       }

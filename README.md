@@ -1,6 +1,6 @@
 # Ancient Clash
 
-A browser **Dota 2–style MOBA**: 5v5 on three lanes, 23 heroes with four abilities each, neutral jungle camps, high-ground bases, runes, a courier per hero, a shop with 30 items, smart bots, and **LAN / online multiplayer** hosted from one PC. Everything is rendered in 3D with [three.js](https://threejs.org/) and runs in the browser — there are no art or sound files, all models, effects and audio are generated in code.
+A browser **Dota 2–style MOBA**: 5v5 on three lanes, 23 heroes with four abilities each, neutral jungle camps, high-ground bases, runes, a courier per hero, a shop with 31 items, smart bots, and **LAN / online multiplayer** hosted from one PC. Everything is rendered in 3D with [three.js](https://threejs.org/) and runs in the browser — there are no art or sound files, all models, effects and audio are generated in code.
 
 > Fan project inspired by Dota 2. It is not affiliated with or endorsed by Valve. Hero stats, creep stats, items and abilities follow the public [Dota 2 Wiki](https://dota2.fandom.com/wiki/Dota_2_Wiki); no Valve assets are used.
 
@@ -242,7 +242,8 @@ Choose a hero and a lane in the Dota-style hero picker. Heroes are grouped by St
 |---|---|
 | **Right click** | Move / attack / follow. On an allied creep below 50% HP: deny it |
 | **A** + click | Attack-move |
-| **Space** / **H** | Stop / hold position |
+| **Space** | Stop: cancels the current action and the hero stays passive (no auto-attacking) until the next order |
+| **H** | Hold position (still attacks what comes in range) |
 | **Q W E R** (and **D**) | Select an ability, then **click** the target or spot (**Esc** or right-click cancels). **M** toggles quick-cast |
 | **Alt + Q/W/E/R** (or Ctrl) | Level up that ability (or click the **+** above it) |
 | **Z X C V B N** | Use inventory slots 1–6 |
@@ -250,7 +251,8 @@ Choose a hero and a lane in the Dota-style hero picker. Heroes are grouped by St
 | **S** | Open the shop (at your fountain) |
 | **Right click** an item in the shop | **Buy** it (left-click only shows the tooltip) |
 | **Right click** an inventory item | Sell it (at the fountain) |
-| **'** / **L** | Center camera / lock or free the camera |
+| **1** / **L** | Center camera / lock or free the camera |
+| **Alt + click** | **Ping** (see [Pings](#pings)): on the ground, an enemy, an ally, or a building. **Alt + click on the minimap** pings that spot |
 | Mouse at the screen edge, arrow keys, left-drag | Move the camera (edge scrolling also works over the top bar) |
 | Click a hero portrait in the top bar | Jump the camera to that hero (only if they are visible; hidden enemies are not revealed) |
 | **Tab** (hold) | Scoreboard: K/D/A, last hits, net worth, GPM/XPM, damage, items, ping, bot/player |
@@ -278,8 +280,28 @@ There is no zoom (the wheel is disabled on purpose).
 
 ### Heroes and items
 - **23 heroes** with 4 abilities each, hero stats copied from the Dota 2 wiki (attributes, growth, base regen, damage, armor, speed, range, attack time).
-- **30 shop items**, including Blink Dagger, Black King Bar, Heart, Butterfly, Refresher Orb, Shiva's Guard, Aghanim's Scepter, Eye of Skadi, Divine Rapier, three kinds of fast boots and the teleport scroll.
+- **31 shop items**, including Morbid Mask (lifesteal), Blink Dagger, Black King Bar, Heart, Butterfly, Refresher Orb, Shiva's Guard, Aghanim's Scepter, Eye of Skadi, Divine Rapier, three kinds of fast boots and the teleport scroll.
 - Health = 120 + 22 per strength, mana = 75 + 12 per intelligence, armor from agility, regen scaling with attributes and items, 25 levels with the Dota XP table.
+
+### Vision, pings and the shop
+- **Skills light up what they hit.** A skill used on an area shows that area to the whole team while it lasts (Shrapnel, Light Strike Array...); skills that hit an enemy unit show it for a moment, and Thundergod's Wrath briefly reveals every enemy hero.
+- **Wards reveal invisible heroes** inside their 1600-unit zone (only for the team that owns the ward).
+- **Protection bubble:** a unit that cannot be attacked (Omnislash, Tricks of the Trade, Telekinesis, ethereal...) is wrapped in a glowing bubble; spell immunity gets a fainter one. Buildings that cannot be hit yet say "Protected" in their info panel.
+- **Recommended item:** a row above your inventory suggests the next item for your hero (their starting build, then a late-game build), with its price, a **Buy** button and an **Auto** checkbox that buys it as soon as you have the gold. The shop tooltip shows what is still missing (price - gold).
+
+### Pings
+
+**Alt + click** pings. What you click decides the kind, and every ping is visible to your whole team (rings on the map in the pinger's colour, and the pinger's hero icon on the minimap) for 2 seconds:
+
+| Click on | Ping | What the bots do |
+|---|---|---|
+| Ground | Attention | Walk there (attack-move) |
+| Enemy hero | Enemy | Gank / focus that hero |
+| Enemy building | Attack | Push that lane, starting with that building |
+| Your building | Defend | Come and defend it |
+| Ally hero | Help | Go and help that ally |
+
+Bots ping too when they plan a push, defence, rescue or gank, so you can see what they are about to do.
 
 ### Look and feel
 - Fully 3D low-poly map, heroes, creeps, towers and a hand-drawn item icon set, with per-ability particle effects (three.quarks) and bloom.
@@ -299,6 +321,8 @@ Hero kills follow the Dota 2 wiki:
 - **Killer gold:** 125 + 8 × victim level, plus a streak bonus (5k² + 5k for a streak of k ≥ 3) and +135 for first blood.
 - **Assist share:** everyone within 1500 units (and anyone who damaged the victim in the last 20 s) also gets (30 + 3.8% of the victim's net worth) × a net-worth-gap factor, split evenly.
 - **XP:** (100 + 13% of the victim's total XP) split between nearby enemy heroes, plus a streak bonus.
+- **Assists:** every hero that damaged the victim in the last 20 s gets the assist gold (less than the killer's) and a share of the XP too, even when far away (the killer's XP share is 50% bigger).
+- **Towers:** the hero that lands the last hit gets the tower bounty (120 / 140 / 160 / 180 gold for tiers 1-4) plus XP shared with nearby heroes (like a hero kill); **every** hero of the team also gets 40% of the bounty, whoever destroyed it, so a creep wave taking a tower still pays the team. Denying your own tower pays nothing.
 - **Kill stealing is allowed:** the last hero to hit gets the kill; earlier attackers get assists. Creep or tower kills credit the last hero who damaged the victim in the previous 20 s; with nobody recent, all enemy heroes share the bounty. Denies and neutral kills pay nothing and do not end streaks.
 
 ---
@@ -326,7 +350,7 @@ Notes: the wiki follows a newer Dota patch than the classic kits implemented her
 |---|---|
 | Consumables | Healing Salve, Clarity, Observer Ward, **Teleportation Scroll** (separate stash, max 5) |
 | Boots | Boots of Speed (+45), Phase Boots (+45, +18 damage, active speed burst), Power Treads (+45, +25 attack speed, +10 str), Boots of Travel (+100). Boots do not stack |
-| Stat items | Gloves of Haste, Blades of Attack, Broadsword, Chainmail, Ogre Axe, Blade of Alacrity, Staff of Wizardry, Vitality Booster, Energy Booster |
+| Stat items | Gloves of Haste, Blades of Attack, **Morbid Mask** (+6 damage, 18% lifesteal: 60% against creeps, nothing against buildings), Broadsword, Chainmail, Ogre Axe, Blade of Alacrity, Staff of Wizardry, Vitality Booster, Energy Booster |
 | Power items | **Blink Dagger**, **Black King Bar** (spell immunity), **Heart of Tarrasque**, **Butterfly** (evasion), **Assault Cuirass**, **Shiva's Guard** (active slow/damage), **Aghanim's Scepter**, **Refresher Orb** (resets cooldowns), **Force Staff** (push), **Eye of Skadi**, **Divine Rapier** |
 
 Items are single purchases (no recipes). Hero-specific items such as auras and on-hit effects are simplified.
@@ -365,6 +389,7 @@ src/sim/               Pure simulation (runs in the browser for single player an
   ai.ts, team.ts       Bot AI and team-level planning; creep, neutral, summon, tower AI
   heroes*.ts, abilities.ts   Hero definitions and abilities (g1–g4 = hero groups)
   items.ts             Item catalog
+  recommend.ts         Recommended next item (shop widget and bots)
   constants.ts         Map geometry: lanes, towers, camps, cliff walls and ramps, XP table
   obstacles.ts, nav.ts Trees/rocks (shared with rendering), collision and A* pathfinding
 src/net/               Client, command API, snapshot (de)serialisation and interpolation

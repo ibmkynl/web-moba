@@ -7,8 +7,11 @@ export interface Api {
   move(x: number, y: number): void
   attack(t: Unit): void
   amove(x: number, y: number): void
+  /** Stop: cancels the current action and the unit stops auto-attacking until it gets a new order. */
   stop(): void
   hold(): void
+  /** Team ping (Alt + click). `target` is the unit under the cursor, if any. */
+  ping(x: number, y: number, target?: Unit | null): void
   /** idx = ability slot (0-3 normal, 4 = stolen) */
   cast(idx: number, st: AbilityState, t: Unit | undefined, x: number, y: number): string | null
   level(i: number): void
@@ -33,10 +36,13 @@ export class LocalApi implements Api {
     this.w.orderAMove(this.me(), x, y)
   }
   stop() {
-    this.w.orderStop(this.me())
+    this.w.orderStop(this.me(), true)
   }
   hold() {
     this.w.orderHold(this.me())
+  }
+  ping(x: number, y: number, target?: Unit | null) {
+    this.w.ping(this.me(), x, y, target?.id)
   }
   cast(_idx: number, st: AbilityState, t: Unit | undefined, x: number, y: number) {
     return this.w.orderCast(this.me(), st, t, x, y)
@@ -81,6 +87,9 @@ export class NetApi implements Api {
   }
   hold() {
     this.send({ t: 'hold' })
+  }
+  ping(x: number, y: number, target?: Unit | null) {
+    this.send({ t: 'ping', x: Math.round(x), y: Math.round(y), tid: target?.id })
   }
   cast(idx: number, st: AbilityState, t: Unit | undefined, x: number, y: number) {
     const me = this.me()

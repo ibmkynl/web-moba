@@ -1,7 +1,7 @@
 import { heroPortrait } from './portraits'
 import { TREES, RIVER } from '../sim/obstacles'
 import { LANES, MAP, PATHS, Pt, TEAM_COLOR, Team } from '../sim/constants'
-import type { WorldView } from '../sim/world'
+import { PING_INFO, type WorldView } from '../sim/world'
 
 /** The minimap: map art, units, wards, runes, the player's route and the camera rectangle. */
 export class Minimap {
@@ -187,6 +187,58 @@ export class Minimap {
         c.strokeStyle = '#ffffff'
         c.stroke()
       }
+    }
+    // pings: expanding rings and the pinger's hero icon (hero / bot / teammate), gone after a few seconds
+    for (const p of w.pings) {
+      if (p.team !== this.myTeam) continue
+      const info = { ...PING_INFO[p.kind], color: w.pingColor(p) }
+      const age = w.time - p.t0
+      const fade = Math.max(0, Math.min(1, (p.until - w.time) / 0.5))
+      const x = p.x * s
+      const y = p.y * s
+      c.save()
+      for (let i = 0; i < 2; i++) {
+        const k = (age * 0.9 + i * 0.5) % 1
+        c.globalAlpha = fade * (1 - k)
+        c.beginPath()
+        c.arc(x, y, 8 + k * 30, 0, Math.PI * 2)
+        c.lineWidth = 3 * (1 - k) + 0.8
+        c.strokeStyle = info.color
+        c.stroke()
+      }
+      c.globalAlpha = fade
+      const R = 11
+      const iy = y - Math.abs(Math.sin(age * 6)) * 3
+      const img = this.heroIcon(p.hero)
+      c.save()
+      c.beginPath()
+      c.arc(x, iy, R, 0, Math.PI * 2)
+      c.closePath()
+      c.fillStyle = '#20242c'
+      c.fill()
+      if (img) {
+        c.clip()
+        c.drawImage(img, x - R, iy - R, R * 2, R * 2)
+      }
+      c.restore()
+      c.beginPath()
+      c.arc(x, iy, R, 0, Math.PI * 2)
+      c.lineWidth = 3
+      c.strokeStyle = info.color
+      c.stroke()
+      c.beginPath()
+      c.arc(x + R * 0.8, iy + R * 0.8, 5.5, 0, Math.PI * 2)
+      c.fillStyle = info.color
+      c.fill()
+      c.lineWidth = 1
+      c.strokeStyle = '#000'
+      c.stroke()
+      c.fillStyle = '#10141a'
+      c.font = "800 8px 'Barlow Condensed', sans-serif"
+      c.textAlign = 'center'
+      c.textBaseline = 'middle'
+      c.fillText(info.glyph, x + R * 0.8, iy + R * 0.8 + 0.5)
+      c.restore()
     }
     // camera rect
     if (this.route && this.route.length > 1) {
