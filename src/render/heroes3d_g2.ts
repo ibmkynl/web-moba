@@ -1,42 +1,11 @@
 import * as THREE from 'three'
-import { Builder, Model, box, cone, cyl, sph, teamRing } from './modelkit'
-
-export type HeroModelFn = (id: string, color: string, color2: string, team: number, r: number) => Model
+import { type HeroModelFn, Model, box, cone, cyl, makeScaffold, sph } from './modelkit'
 
 const PI = Math.PI
-type Rot = [number, number, number]
 
-/** Shared scaffolding: builder, group, body, weapon pivot and positioning helpers (units of r). */
+/** Shared scaffolding plus a smoothed 0..1 "moving" factor. */
 function scaffold(team: number, r: number) {
-  const b = new Builder()
-  const g = new THREE.Group()
-  teamRing(b, g, r, team)
-  const body = new THREE.Group()
-  g.add(body)
-  const weapon = new THREE.Group()
-  const glow = (c: string, i = 0.8) => b.m(c, { emissive: new THREE.Color(c), emissiveIntensity: i })
-  const metal = (c: string) => b.m(c, { metalness: 0.65, roughness: 0.35 })
-  const put = (
-    geo: THREE.BufferGeometry,
-    mt: THREE.Material,
-    x: number,
-    y: number,
-    z: number,
-    rot: Rot = [0, 0, 0],
-    parent: THREE.Object3D = body,
-    sc?: [number, number, number],
-  ) => {
-    const me = b.mesh(geo, mt, x * r, y * r, z * r, parent)
-    me.rotation.set(rot[0], rot[1], rot[2])
-    if (sc) me.scale.set(sc[0], sc[1], sc[2])
-    return me
-  }
-  const grp = (x: number, y: number, z: number, parent: THREE.Object3D = body) => {
-    const o = new THREE.Group()
-    o.position.set(x * r, y * r, z * r)
-    parent.add(o)
-    return o
-  }
+  const s = makeScaffold(team, r)
   /** smoothed 0..1 "moving" factor */
   const mover = () => {
     let k = 0
@@ -48,7 +17,7 @@ function scaffold(team: number, r: number) {
       return k
     }
   }
-  return { b, g, body, weapon, glow, metal, put, grp, mover }
+  return { ...s, grp: s.piv, mover }
 }
 
 const torus = (R: number, tube: number, arc = PI * 2, seg = 12) => new THREE.TorusGeometry(R, tube, 5, seg, arc)
@@ -71,7 +40,6 @@ const windranger: HeroModelFn = (id, color, color2, team, r) => {
   const gem = glow('#60f0b8', 1.1)
   const eyeM = glow('#2fe0b0', 0.9)
   const wood = b.m('#7a5a2a')
-  void id
 
   const torso = grp(0, 0, 0)
 
@@ -269,7 +237,6 @@ const antimage: HeroModelFn = (id, color, color2, team, r) => {
   const eyeM = glow('#fff6a0', 1.3)
   const edge = glow('#9ad0ff', 0.9)
   const grip = b.m('#3a2a1a')
-  void id
   const torso = grp(0, 0, 0)
 
   // legs: sandals + wraps
@@ -429,7 +396,6 @@ const riki: HeroModelFn = (id, color, color2, team, r) => {
   const eyeM = glow('#ff5a5a', 1.6)
   const edge = glow('#c8a8ff', 0.8)
   const rune = glow('#a070ff', 1.0)
-  void id
   const torso = grp(0, 0, 0)
 
   // crouched legs w/ wraps
@@ -505,7 +471,7 @@ const riki: HeroModelFn = (id, color, color2, team, r) => {
     return { sh, fore }
   }
   const aL = mkArm(-1)
-  const aR = mkArm(1)
+  mkArm(1)
 
   // head: hood, mask, glowing eyes
   const head = grp(0.5, 2.15, 0, torso)

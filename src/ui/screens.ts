@@ -1,6 +1,6 @@
 import type { Pick, WorldCfg } from '../sim/world'
 import { HEROES } from '../sim/heroes'
-import type { Lane } from '../sim/constants'
+import { LANE_NAME, LANE_SLOTS, shuffle, type Lane } from '../sim/constants'
 import { portraitStyle } from './hud'
 
 const ATTRS = [
@@ -13,16 +13,6 @@ const SLOTS_PER_COLUMN = 6
 const kind = (a: { ult?: boolean; behavior: string }) =>
   a.ult ? 'Ultimate' : a.behavior === 'passive' ? 'Passive' : a.behavior === 'toggle' ? 'Toggle' : a.behavior === 'unit' ? 'Unit target' : a.behavior === 'point' ? 'Point target' : 'No target'
 
-const LANE_NAME: Record<Lane, string> = { top: 'Top', mid: 'Mid', bot: 'Bottom' }
-const shuffle = <T,>(a: T[]) => {
-  const r = [...a]
-  for (let i = r.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[r[i], r[j]] = [r[j], r[i]]
-  }
-  return r
-}
-const LANE_SLOTS: Lane[] = ['top', 'top', 'mid', 'bot', 'bot']
 
 export function showSelect(root: HTMLElement, onStart: (cfg: WorldCfg) => void) {
   let heroId: string | null = null

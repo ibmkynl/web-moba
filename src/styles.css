@@ -248,6 +248,20 @@ kbd {
   color: var(--gold3);
   letter-spacing: 1px;
 }
+#clock .ping-live {
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: 1px;
+}
+#clock .ping-live.good {
+  color: #6fe06f;
+}
+#clock .ping-live.ok {
+  color: #e8c860;
+}
+#clock .ping-live.bad {
+  color: #e8564a;
+}
 #clock .dn {
   font-size: 13px;
   color: var(--muted);

@@ -1,11 +1,28 @@
 export const MAP = 9600
 export type Team = 0 | 1
+/** Jungle creeps belong to neither side. They are typed as a Team for convenience; test with isNeutral. */
+export const NEUTRAL = 2 as number as Team
+export const isNeutral = (team: number) => team === 2
 export interface Pt {
   x: number
   y: number
 }
 export type Lane = 'top' | 'mid' | 'bot'
 export const LANES: Lane[] = ['top', 'mid', 'bot']
+/** The five lane slots of a team: two top, one mid, two bottom. */
+export const LANE_SLOTS: Lane[] = ['top', 'top', 'mid', 'bot', 'bot']
+export const LANE_NAME: Record<Lane, string> = { top: 'Top', mid: 'Mid', bot: 'Bottom' }
+/** Fixed simulation step (s): the host, single player and the benchmark all tick at 60 Hz. */
+export const STEP = 1 / 60
+/** Fisher-Yates shuffle into a new array. */
+export const shuffle = <T,>(a: T[]): T[] => {
+  const r = [...a]
+  for (let i = r.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[r[i], r[j]] = [r[j], r[i]]
+  }
+  return r
+}
 
 export const TEAM_NAME = ['Radiant', 'Dire', 'Neutral']
 export const TEAM_COLOR = ['#5fd35f', '#e0463a', '#d9a441']
@@ -226,25 +243,6 @@ export function pushOutOfWalls(p: Pt, extra = 0) {
   }
 }
 
-const segSegDist = (a: Pt, b: Pt, s: Seg) => {
-  // distance between segment ab and segment s (0 when they cross)
-  const o = (p: Pt, q: Pt, r: Pt) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)
-  const c1 = o(a, b, s.a) * o(a, b, s.b)
-  const c2 = o(s.a, s.b, a) * o(s.a, s.b, b)
-  if (c1 < 0 && c2 < 0) return 0
-  return Math.min(
-    distPtSeg(a.x, a.y, s).d,
-    distPtSeg(b.x, b.y, s).d,
-    distPtSeg(s.a.x, s.a.y, { a, b }).d,
-    distPtSeg(s.b.x, s.b.y, { a, b }).d,
-  )
-}
-
-export function wallBlocked(a: Pt, b: Pt, margin = WALL_R + 14) {
-  for (const s of WALLS) if (segSegDist(a, b, s) < margin) return true
-  return false
-}
-
 /* ------------------------------------------------------------------ jungle */
 // Camp spots on the Radiant half (mirrored for Dire). tier 0 small, 1 medium, 2 ancient.
 
@@ -293,3 +291,19 @@ const RAD_TRAILS: Pt[][] = [
   ],
 ]
 export const TRAILS: Pt[][] = [...RAD_TRAILS, ...RAD_TRAILS.map((t) => t.map(mirror))]
+
+/* ---------------------------------------------------------------- registries */
+
+/** Merges id-keyed tables from several modules; a duplicate id throws instead of silently replacing an entry. */
+export function mergeUnique<T>(label: string, ...tables: Record<string, T>[]): Record<string, T> {
+  const out: Record<string, T> = {}
+  for (const t of tables) {
+    for (const k of Object.keys(t)) {
+      if (k in out) throw new Error(`duplicate ${label} id: ${k}`)
+      out[k] = t[k]
+    }
+  }
+  return out
+}
+/** Indexes a list by id; a duplicate id throws. */
+export const indexUnique = <T extends { id: string }>(label: string, list: T[]) => mergeUnique(label, ...list.map((x) => ({ [x.id]: x })))

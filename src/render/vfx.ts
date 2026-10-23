@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { mergeUnique } from '../sim/constants'
 import {
   Bezier, BatchedRenderer, ColorOverLife, Gradient, ConeEmitter, ConstantValue, DonutEmitter, IntervalValue, ParticleSystem,
   PiecewiseBezier, PointEmitter, SizeOverLife, SphereEmitter, ConstantColor, ApplyForce, Vector3 as QVec3, Vector4,
@@ -13,7 +14,7 @@ import { VFX_G4 } from './vfx_g4'
 /** A custom effect: build it with the Vfx helpers (emit, ring, column, beam, slash, spikes, spawn...). */
 export type CustomVfx = (v: Vfx, e: VfxEvt, posOf?: (u: { x: number; y: number }) => THREE.Vector3 | null) => void
 
-const CUSTOM: Record<string, CustomVfx> = { ...VFX_BASE, ...VFX_G1, ...VFX_G2, ...VFX_G3, ...VFX_G4 }
+const CUSTOM: Record<string, CustomVfx> = mergeUnique('effect', VFX_BASE, VFX_G1, VFX_G2, VFX_G3, VFX_G4)
 
 /** Visual effects layer built on three.quarks (particles) plus a few small mesh effects. */
 
@@ -39,11 +40,6 @@ export interface VfxEvt {
   unit?: { x: number; y: number }
   unit2?: { x: number; y: number }
   [k: string]: any
-}
-
-const hex = (c: string, a = 1) => {
-  const col = new THREE.Color(c)
-  return new Vector4(col.r, col.g, col.b, a)
 }
 
 function canvasTex(draw: (g: CanvasRenderingContext2D, s: number) => void, s = 128) {
@@ -216,6 +212,19 @@ export class Vfx {
 
   /* ------------------------------------------------------------ mesh effects */
 
+  /** Unit-sized primitive geometries shared by every effect (meshes scale them; disposal skips them). */
+  private geos = new Map<string, THREE.BufferGeometry>()
+  private shared(key: string, make: () => THREE.BufferGeometry) {
+    let g = this.geos.get(key)
+    if (!g) this.geos.set(key, (g = make()))
+    return g
+  }
+  private sharedMesh(key: string, make: () => THREE.BufferGeometry, color: string, opacity = 1, add = true) {
+    const m = this.mesh(this.shared(key, make), color, opacity, add)
+    m.userData.sharedGeo = true
+    return m
+  }
+
   private mesh(geo: THREE.BufferGeometry, color: string, opacity = 1, add = true) {
     const m = new THREE.Mesh(
       geo,
@@ -236,7 +245,7 @@ export class Vfx {
           this.scene.remove(obj)
           obj.traverse((o) => {
             const m = o as THREE.Mesh
-            m.geometry?.dispose()
+            if (!m.userData.sharedGeo) m.geometry?.dispose()
             ;(m.material as THREE.Material)?.dispose?.()
           })
           return false
@@ -250,12 +259,12 @@ export class Vfx {
 
   /** Expanding glowing ground ring. */
   ring(p: THREE.Vector3, r0: number, r1: number, dur: number, color: string, width = 0.12) {
-    const g = new THREE.RingGeometry(1 - width, 1, 56)
-    const m = this.mesh(g, color, 0.9)
+    const w = Math.round(width * 100) / 100
+    const m = this.sharedMesh('ring' + w, () => new THREE.RingGeometry(1 - w, 1, 56), color, 0.9)
     m.rotation.x = -Math.PI / 2
     m.position.copy(p)
     m.position.y += 4
-    const inner = this.mesh(new THREE.CircleGeometry(1, 40), color, 0.18)
+    const inner = this.sharedMesh('disc', () => new THREE.CircleGeometry(1, 40), color, 0.18)
     inner.rotation.x = -Math.PI / 2
     inner.position.y = 3
     const grp = new THREE.Group()
@@ -275,12 +284,11 @@ export class Vfx {
 
   /** Vertical light pillar. */
   column(p: THREE.Vector3, r: number, h: number, dur: number, color: string) {
-    const g = new THREE.CylinderGeometry(r, r * 1.2, h, 20, 1, true)
-    const m = this.mesh(g, color, 0.55)
+    const m = this.sharedMesh('column', () => new THREE.CylinderGeometry(1, 1.2, 1, 20, 1, true), color, 0.55)
     m.position.set(p.x, h / 2, p.z)
     this.addLive(m, dur, (k) => {
       const e = Math.min(1, k * 4)
-      m.scale.set(1 - k * 0.5, e, 1 - k * 0.5)
+      m.scale.set(r * (1 - k * 0.5), h * e, r * (1 - k * 0.5))
       m.position.y = (h * e) / 2
       ;(m.material as THREE.MeshBasicMaterial).opacity = 0.55 * (1 - k)
     })
@@ -289,13 +297,13 @@ export class Vfx {
   /** Beam between two (possibly moving) points. */
   beam(a: () => THREE.Vector3 | null, b: () => THREE.Vector3 | null, dur: number, color: string, width = 14, jag = 0) {
     const grp = new THREE.Group()
-    const core = this.mesh(new THREE.CylinderGeometry(width * 0.25, width * 0.25, 1, 8, 1, true), '#ffffff', 1)
-    const glow = this.mesh(new THREE.CylinderGeometry(width, width, 1, 10, 1, true), color, 0.55)
+    const core = this.sharedMesh('tube8', () => new THREE.CylinderGeometry(1, 1, 1, 8, 1, true), '#ffffff', 1)
+    const glow = this.sharedMesh('tube10', () => new THREE.CylinderGeometry(1, 1, 1, 10, 1, true), color, 0.55)
     grp.add(core, glow)
     const segs: THREE.Mesh[] = []
     if (jag) {
       for (let i = 0; i < 8; i++) {
-        const s = this.mesh(new THREE.CylinderGeometry(width * 0.3, width * 0.3, 1, 6, 1, true), '#ffffff', 0.9)
+        const s = this.sharedMesh('tube6', () => new THREE.CylinderGeometry(1, 1, 1, 6, 1, true), '#ffffff', 0.9)
         segs.push(s)
         grp.add(s)
       }
@@ -311,8 +319,6 @@ export class Vfx {
         return
       }
       grp.visible = true
-      const dir = new THREE.Vector3().subVectors(pb, pa)
-      const len = dir.length()
       const place = (m: THREE.Mesh, from: THREE.Vector3, to: THREE.Vector3, w = 1) => {
         const d = new THREE.Vector3().subVectors(to, from)
         const l = d.length()
@@ -320,7 +326,7 @@ export class Vfx {
         m.quaternion.setFromUnitVectors(up, d.clone().normalize())
         m.scale.set(w, Math.max(0.01, l), w)
       }
-      place(glow, pa, pb, 1 + Math.sin(k * 40) * 0.12)
+      place(glow, pa, pb, width * (1 + Math.sin(k * 40) * 0.12))
       if (jag) {
         jt -= dt
         const n = segs.length
@@ -331,25 +337,23 @@ export class Vfx {
           if (i > 0 && i < n) p.add(new THREE.Vector3((Math.random() - 0.5) * jag, (Math.random() - 0.5) * jag * 0.6, (Math.random() - 0.5) * jag))
           pts.push(p)
         }
-        segs.forEach((s, i) => place(s, pts[i], pts[i + 1]))
-      } else place(core, pa, pb)
+        segs.forEach((s, i) => place(s, pts[i], pts[i + 1], width * 0.3))
+      } else place(core, pa, pb, width * 0.25)
       const fade = k > 0.7 ? 1 - (k - 0.7) / 0.3 : 1
       ;(glow.material as THREE.MeshBasicMaterial).opacity = 0.55 * fade
-      void len
     })
   }
 
   /** Circular crescent slash. */
   slash(p: THREE.Vector3, angle: number, size: number, dur: number, color: string) {
-    const g = new THREE.RingGeometry(size * 0.55, size, 32, 1, -0.9, 1.8)
-    const m = this.mesh(g, color, 0.9)
+    const m = this.sharedMesh('slash', () => new THREE.RingGeometry(0.55, 1, 32, 1, -0.9, 1.8), color, 0.9)
     m.rotation.x = -Math.PI / 2
     const grp = new THREE.Group()
     grp.add(m)
     grp.position.set(p.x, p.y + 30, p.z)
     grp.rotation.y = -angle
     this.addLive(grp, dur, (k) => {
-      m.scale.setScalar(0.7 + k * 0.6)
+      m.scale.setScalar(size * (0.7 + k * 0.6))
       m.rotation.z = -0.5 + k * 1.0
       ;(m.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - k)
     })
@@ -358,18 +362,17 @@ export class Vfx {
   /** Spikes/crystals rising from the ground in a circle. */
   spikes(p: THREE.Vector3, r: number, n: number, h: number, dur: number, color: string) {
     const grp = new THREE.Group()
-    const cones: { m: THREE.Mesh; d: number }[] = []
+    const cones: { m: THREE.Mesh; d: number; h: number }[] = []
+    const cone = this.shared('spike', () => new THREE.ConeGeometry(0.16, 1, 5))
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2
       const rr = Math.sqrt(Math.random()) * r
       const height = h * (0.6 + Math.random() * 0.8)
-      const m = new THREE.Mesh(
-        new THREE.ConeGeometry(height * 0.16, height, 5),
-        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }),
-      )
+      const m = new THREE.Mesh(cone, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }))
+      m.userData.sharedGeo = true
       m.position.set(Math.cos(a) * rr, 0, Math.sin(a) * rr)
       m.rotation.set((Math.random() - 0.5) * 0.4, 0, (Math.random() - 0.5) * 0.4)
-      cones.push({ m, d: Math.random() * 0.25 })
+      cones.push({ m, d: Math.random() * 0.25, h: height })
       grp.add(m)
     }
     grp.position.set(p.x, 0, p.z)
@@ -377,9 +380,8 @@ export class Vfx {
       for (const c of cones) {
         const kk = Math.max(0, Math.min(1, (k - c.d) / 0.25))
         const e = kk * (2 - kk)
-        const h0 = (c.m.geometry as THREE.ConeGeometry).parameters.height
-        c.m.scale.set(1, e, 1)
-        c.m.position.y = (h0 * e) / 2
+        c.m.scale.set(c.h, c.h * e, c.h)
+        c.m.position.y = (c.h * e) / 2
         ;(c.m.material as THREE.MeshBasicMaterial).opacity = 0.85 * (k > 0.6 ? 1 - (k - 0.6) / 0.4 : 1)
       }
     })

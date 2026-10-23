@@ -1,4 +1,4 @@
-import type { Lane, Team } from './constants'
+import type { Lane, Pt, Team } from './constants'
 import type { World } from './world'
 
 export type UnitKind = 'hero' | 'creep' | 'tower' | 'ancient' | 'fountain' | 'courier' | 'summon'
@@ -101,6 +101,18 @@ export interface AbilityDef {
   onEnemyHeroDeath?: (w: World, owner: Unit, victim: Unit, killer: Unit | null, lvl: number, st: AbilityState) => void
   tick?: (w: World, c: Unit, lvl: number, dt: number, st: AbilityState) => void
   ai?: (w: World, c: Unit, st: AbilityState, lvl: number) => boolean
+  /** Targeting preview while aiming: a skillshot line, an area at the cursor (radius per level), or a circle around the caster. */
+  aim?: { line?: { len: number; width: number; color?: string }; aoe?: { r: number[]; color: string }; circle?: { r: number; color: string } }
+  /** Distance beyond cast range before an in-progress cast is cancelled (default 80; long cast points such as Assassinate need more). */
+  castSlack?: number
+  /** Draw an aiming beam from caster to target during the cast point. */
+  aimBeam?: boolean
+  /** Ground area drawn around the caster while the ability is toggled on. */
+  toggleArea?: { r: number; fill: string; stroke: string }
+  /** Runs when this ability lands the killing blow on an enemy hero (cooldown resets, stacks, team buffs). */
+  onKill?: (w: World, killer: Unit, victim: Unit, st: AbilityState) => void
+  /** True while pressing the key again should aim the ability's follow-up (e.g. Telekinesis landing). */
+  followUp?: (c: Unit, now: number) => boolean
 }
 
 export class AbilityState {
@@ -181,6 +193,10 @@ export interface HeroDef {
   color: string
   color2: string
   roles: string[]
+  /** Has a fifth (stolen spell) ability slot. */
+  stealSlot?: boolean
+  /** Bots playing this hero keep wards up for the team. */
+  buysWards?: boolean
   lore: string
   abilities: AbilityDef[]
   skillOrder: number[]
@@ -202,7 +218,8 @@ export class HeroState {
   dn = 0
   respawnAt = 0
   lastCast: { def: AbilityDef; level: number } | null = null
-  isPlayer = false
+  /** controlled by a person (no bot AI); which hero a client views is World.player */
+  isHuman = false
   streak = 0
   pname = ''
   earned = 0
@@ -307,6 +324,31 @@ export class Unit {
   z = 0
   bounty = 0
   xp = 0
+  /* engine-visible state (renderer, HUD, network): typed here; snapshot.ts NET_KEYS lists what goes over the wire */
+  /** courier: id of the hero it serves */
+  courierOf = 0
+  /** summon: the unit that created it */
+  summoner: Unit | null = null
+  /** summon: colour of its glowing core */
+  tint = ''
+  /** lane creep upgraded to mega */
+  mega = false
+  /** never auto-acquires targets (couriers, summons, bots and players pick their own) */
+  noAuto = false
+  /** courier on a delivery run */
+  delivering = false
+  /** lifted by Telekinesis between these times */
+  liftStart = 0
+  liftEnd = 0
+  /** teleport channel ends at this time (0 = not teleporting) */
+  tpUntil = 0
+  /** hero: round trip to the host in ms (multiplayer) */
+  ping: number | undefined = undefined
+  /** replica: enemy hero known only from the roster (not visible) */
+  stub = false
+  /** caster of an active Telekinesis: where the target was lifted and when it lands */
+  tk: { target?: Unit; start: Pt; land?: Pt; end: number } | null = null
+  /** ability-private scratch state (stacks, timers...) */
   extra: any = {}
   constructor(
     public team: Team,

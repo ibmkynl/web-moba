@@ -3,6 +3,8 @@ import { MAP, MAX_LEVEL, TEAM_NAME, XP_TABLE } from '../sim/constants'
 import type { AbilityState, HeroDef, Unit } from '../sim/entities'
 import { ITEMS } from '../sim/items'
 import { itemIcon } from './itemicons'
+import { esc } from './html'
+import { QUALITIES } from '../render/renderer3d'
 import { heroPortrait } from '../render/portraits'
 
 const ABIL_KEYS = ['Q', 'W', 'E', 'R', 'D']
@@ -15,7 +17,6 @@ export function portraitStyle(def: HeroDef) {
   return url ? `background: url(${url}) center / cover no-repeat, ${fallback};` : `background: ${fallback};`
 }
 
-const attrIcon = (a: string) => (a === 'str' ? '<b class="a-str">S</b>' : a === 'agi' ? '<b class="a-agi">A</b>' : a === 'int' ? '<b class="a-int">I</b>' : '<b class="a-all">U</b>')
 
 const fmt = (n: number) => (Math.abs(n) >= 100 ? Math.round(n).toString() : (Math.round(n * 10) / 10).toString())
 const mmss = (t: number) => `${Math.floor(t / 60)
@@ -23,6 +24,29 @@ const mmss = (t: number) => `${Math.floor(t / 60)
   .padStart(2, '0')}:${Math.floor(t % 60)
   .toString()
   .padStart(2, '0')}`
+
+/* DOM writes are the HUD's main cost: look elements up once and only touch them when the value changes */
+const qCache = new WeakMap<Element, Map<string, Element | null>>()
+const q = (root: Element, sel: string): any => {
+  let m = qCache.get(root)
+  if (!m) qCache.set(root, (m = new Map()))
+  let el = m.get(sel)
+  if (el === undefined) m.set(sel, (el = root.querySelector(sel)))
+  return el
+}
+const setText = (el: Element, v: string) => {
+  if ((el as any).__t !== v) {
+    ;(el as any).__t = v
+    el.textContent = v
+  }
+}
+const setStyle = (el: HTMLElement, k: string, v: string) => {
+  const c = ((el as any).__s ??= {})
+  if (c[k] !== v) {
+    c[k] = v
+    ;(el.style as any)[k] = v
+  }
+}
 
 export class Hud {
   root: HTMLElement
@@ -60,7 +84,7 @@ export class Hud {
   /* ------------------------------------------------------------- build */
 
   private build() {
-    const w = this.g.world
+    const w = this.g.view
     this.root.innerHTML = `
       <div id="tpbar"><div class="tp-t">Teleporting<small>Stand still — moving cancels it and uses up the scroll</small></div><div class="tp-b"><i></i></div><div class="tp-s"></div></div>
       <div id="topbar" class="ui">
@@ -69,6 +93,7 @@ export class Hud {
           <div class="score"><span class="rs">0</span><span class="time">00:00</span><span class="ds">0</span></div>
           <div class="dn"><i></i><span>Day</span></div>
           <div class="rt">Rune <b>2:00</b></div>
+          ${this.g.net ? '<div class="ping-live" title="Round trip to the host">— ms</div>' : ''}
         </div>
         <div class="team-row" id="dire-row"></div>
       </div>
@@ -78,6 +103,7 @@ export class Hud {
         <button id="b-quick" title="Quick cast (M)">⚡</button>
         <button id="b-stats" title="Stats (hold Tab)">▤</button>
         <button id="b-sound" title="Sound on/off">♪</button>
+        <button id="b-gfx" title="Graphics quality">◐</button>
         <button id="b-help" title="Controls">?</button>
         ${this.g.net ? '' : '<button id="b-test" title="Test: max level + 20000 gold (single player only)">★</button>'}
         <button id="b-quit" title="Quit match (Esc)">✕</button>
@@ -201,7 +227,7 @@ export class Hud {
           ev.stopPropagation()
           if (ev.button === 0) this.g.focusHero(u)
         })
-        el.addEventListener('mouseenter', () => this.showTip(el, `<h4>${u.h!.pname || d.name}</h4><p>${d.name} — ${TEAM_NAME[team]}</p>`))
+        el.addEventListener('mouseenter', () => this.showTip(el, `<h4>${esc(u.h!.pname || d.name)}</h4><p>${d.name} — ${TEAM_NAME[team]}</p>`))
         el.addEventListener('mouseleave', () => this.hideTip())
       }
     }
@@ -239,19 +265,9 @@ export class Hud {
     })
 
     // menu buttons
-    $('#b-pause').onclick = () => {
-      if (this.g.net) return
-      this.g.paused = !this.g.paused
-      this.setPaused(this.g.paused)
-    }
-    $('#b-cam').onclick = () => {
-      this.g.camLocked = !this.g.camLocked
-      this.toast(this.g.camLocked ? 'Camera locked to hero' : 'Camera free — edge scroll / arrows')
-    }
-    $('#b-quick').onclick = () => {
-      this.g.quickCast = !this.g.quickCast
-      this.toast(this.g.quickCast ? 'Quick cast ON' : 'Quick cast OFF')
-    }
+    $('#b-pause').onclick = () => this.g.togglePause()
+    $('#b-cam').onclick = () => this.g.toggleCamLock()
+    $('#b-quick').onclick = () => this.g.toggleQuickCast()
     $('#b-stats').onclick = () => {
       this.statsPinned = !this.statsPinned
       $('#b-stats').classList.toggle('on', this.statsPinned)
@@ -261,6 +277,12 @@ export class Hud {
       const m = this.g.sfx.toggle()
       $('#b-sound').classList.toggle('muted', m)
       this.toast(m ? 'Sound off' : 'Sound on')
+    }
+    $('#b-gfx').onclick = () => {
+      const r = this.g.renderer
+      const q = QUALITIES[(QUALITIES.indexOf(r.quality) + 1) % QUALITIES.length]
+      r.setQuality(q)
+      this.toast(`Graphics: ${q[0].toUpperCase() + q.slice(1)}`)
     }
     const tb = this.root.querySelector('#b-test') as HTMLElement | null
     if (tb) tb.onclick = () => this.g.testBoost()
@@ -356,7 +378,7 @@ export class Hud {
     }
     this.bannerBusy = true
     el.className = `on ${b.tone}`
-    el.innerHTML = `<div class="at">${b.text}</div>${b.sub ? `<div class="as">${b.sub}</div>` : ''}`
+    el.innerHTML = `<div class="at">${esc(b.text)}</div>${b.sub ? `<div class="as">${esc(b.sub)}</div>` : ''}`
     window.setTimeout(() => {
       el.className = ''
       window.setTimeout(() => this.nextBanner(), 250)
@@ -421,7 +443,7 @@ export class Hud {
   /* -------------------------------------------------------------- shop */
 
   private renderShop() {
-    const w = this.g.world
+    const w = this.g.view
     const p = w.player
     const hs = p.h!
     const near = w.nearShop(p)
@@ -472,20 +494,17 @@ export class Hud {
   /* -------------------------------------------------------- scoreboard */
 
   private renderScore() {
-    const w = this.g.world
+    const w = this.g.view
     const mmss2 = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`
     const min = Math.max(1 / 6, w.time / 60)
-    const worth = (h: Unit) => {
-      const hs = h.h!
-      return Math.round(hs.gold + hs.items.reduce((n, it) => n + (it ? it.def.cost * Math.max(1, it.charges) : 0), 0))
-    }
+    const worth = (h: Unit) => w.netWorth(h)
     const fmtK = (n: number) => (n >= 10000 ? (n / 1000).toFixed(1) + 'k' : String(Math.round(n)))
     const row = (h: Unit) => {
       const hs = h.h!
-      const isHuman = hs.isPlayer
+      const isHuman = hs.isHuman
       const mine = h === w.player
-      const pname = hs.pname || (mine ? 'You' : 'Player')
-      const ping = h.extra.ping as number | undefined
+      const pname = esc(hs.pname || (mine ? 'You' : 'Player'))
+      const ping = h.ping as number | undefined
       const status = h.dead ? `<span class="dead">${Math.max(0, Math.ceil(hs.respawnAt - w.time))}s</span>` : ''
       const items = hs.items
         .map((it) => `<span class="si">${it ? itemIcon(it.def.id) : ''}${it && it.def.consumable && it.charges > 1 ? `<i>${it.charges}</i>` : ''}</span>`)
@@ -513,47 +532,69 @@ export class Hud {
         <th title="Gold earned per minute">GPM</th><th title="Experience per minute">XPM</th><th title="Hero damage dealt">Hero dmg</th><th title="Damage dealt to buildings">Tower dmg</th><th>Items</th><th>Ping</th></tr></thead>
         <tbody>${hs.map(row).join('')}</tbody></table>`
     }
-    this.e.score.innerHTML = `<div class="st-head"><b>Match stats</b><span>${mmss2(w.time)} · ${w.isDay ? 'Day' : 'Night'}</span><span class="rk">${w.kills[0]}</span><span>:</span><span class="dk">${w.kills[1]}</span></div>${table(0)}${table(1)}`
+    const html = `<div class="st-head"><b>Match stats</b><span>${mmss2(w.time)} · ${w.isDay ? 'Day' : 'Night'}</span><span class="rk">${w.kills[0]}</span><span>:</span><span class="dk">${w.kills[1]}</span></div>${table(0)}${table(1)}`
+    if (html !== this.scoreHtml) {
+      this.scoreHtml = html
+      this.e.score.innerHTML = html
+    }
   }
+  private scoreHtml = ''
+  private unitInfoHtml = ''
 
   private updateUnitInfo() {
     const el = this.root.querySelector('#unitinfo') as HTMLElement
     const u = this.g.hover
-    const w = this.g.world
-    if (!u || u.dead || u.kind === 'fountain' || u.extra.stub) {
+    const w = this.g.view
+    if (!u || u.dead || u.kind === 'fountain' || u.stub) {
       el.classList.add('hidden')
       return
     }
     const mine = u.team === w.player.team
     const col = mine ? '#6fe06f' : '#e8564a'
     const s = u.st
-    const name = u.kind === 'hero' ? `${u.h!.def.name} <small>Lv ${u.h!.level}</small>` : u.name
+    const name = u.kind === 'hero' ? `${u.h!.def.name} <small>Lv ${u.h!.level}</small>` : esc(u.name)
     const hint =
       !mine ? 'Right-click to attack' : u.kind === 'creep' && u.hp < s.maxHp * 0.5 ? '<b>Right-click to deny</b>' : u.kind === 'creep' ? 'Deny below 50% HP' : ''
     const hpTxt = `${Math.ceil(u.hp)} / ${Math.round(s.maxHp)}`
-    el.innerHTML = `<div class="ui-name" style="color:${col}">${name}</div>
+    const html = `<div class="ui-name" style="color:${col}">${name}</div>
       <div class="ui-bar"><i style="width:${(u.hp / s.maxHp) * 100}%;background:${mine ? '#3fae3a' : '#c8402e'}"></i><span>${hpTxt}</span></div>
       <div class="ui-st"><span>Dmg <b>${Math.round(s.dmg)}</b></span><span>Armor <b>${fmt(s.armor)}</b></span><span>Move <b>${Math.round(s.ms)}</b></span>${u.locked ? '<span class="lk">Invulnerable</span>' : ''}</div>
       ${hint ? `<div class="ui-hint">${hint}</div>` : ''}`
+    if (html !== this.unitInfoHtml) {
+      this.unitInfoHtml = html
+      el.innerHTML = html
+    }
     el.classList.remove('hidden')
   }
 
   /* ------------------------------------------------------------- update */
 
+  private pingTxt = ''
+  private updatePing(p: Unit) {
+    const ms = p.ping as number | undefined
+    const txt = ms === undefined ? '— ms' : `${ms} ms`
+    if (txt === this.pingTxt) return
+    this.pingTxt = txt
+    const el = this.root.querySelector('.ping-live') as HTMLElement | null
+    if (!el) return
+    el.textContent = txt
+    el.className = 'ping-live ' + (ms === undefined ? '' : ms < 80 ? 'good' : ms < 160 ? 'ok' : 'bad')
+  }
+
   update(dt: number) {
-    const w = this.g.world
+    const w = this.g.view
     const p = w.player
     const hs = p.h!
     // minimap every frame
     this.g.renderer.drawMinimap(this.mmc, MM)
     // teleport channel progress (centre of the screen)
-    if (!this.tpEl) this.tpEl = this.root.querySelector('#tpbar') as HTMLElement
-    const tpEnd = p.extra.tpUntil as number | undefined
+    if (!this.tpEl) this.tpEl = q(this.root, '#tpbar') as HTMLElement
+    const tpEnd = p.tpUntil as number | undefined
     if (tpEnd && tpEnd > w.time && !p.dead) {
       const k = Math.max(0, Math.min(1, 1 - (tpEnd - w.time) / 3))
       this.tpEl.classList.add('on')
-      ;(this.tpEl.querySelector('.tp-b i') as HTMLElement).style.width = k * 100 + '%'
-      ;(this.tpEl.querySelector('.tp-s') as HTMLElement).textContent = Math.max(0, tpEnd - w.time).toFixed(1) + 's'
+      setStyle(q(this.tpEl, '.tp-b i') as HTMLElement, 'width', k * 100 + '%')
+      setText(q(this.tpEl, '.tp-s') as HTMLElement, Math.max(0, tpEnd - w.time).toFixed(1) + 's')
     } else this.tpEl.classList.remove('on')
     this.acc += dt
     if (this.toastT > 0) {
@@ -564,97 +605,98 @@ export class Hud {
     this.acc = 0
 
     // top bar
-    this.e.rs.textContent = String(w.kills[0])
-    this.e.ds.textContent = String(w.kills[1])
-    this.e.time.textContent = mmss(w.time)
+    setText(this.e.rs, String(w.kills[0]))
+    setText(this.e.ds, String(w.kills[1]))
+    setText(this.e.time, mmss(w.time))
+    if (this.g.net) this.updatePing(p)
     const day = w.isDay
     this.e.dn.className = 'dn ' + (day ? 'day' : 'night')
-    this.e.dn.querySelector('span')!.textContent = day ? 'Day' : 'Night'
+    setText(q(this.e.dn, 'span')!, day ? 'Day' : 'Night')
     const nr = Math.max(0, w.nextPowerRune - w.time)
-    const rtEl = this.root.querySelector('.rt b') as HTMLElement
-    if (rtEl) rtEl.textContent = mmss(nr).replace(/^0/, '')
+    const rtEl = q(this.root, '.rt b') as HTMLElement
+    if (rtEl) setText(rtEl, mmss(nr).replace(/^0/, ''))
     for (const s of this.slots) {
       const hsx = s.u.h!
       const visible = s.u.team === p.team || w.isVisible(p.team, s.u)
-      s.lv.textContent = String(hsx.level)
+      setText(s.lv, String(hsx.level))
       s.el.classList.toggle('dead', s.u.dead)
-      s.timer.textContent = s.u.dead ? String(Math.max(0, Math.ceil(hsx.respawnAt - w.time))) : ''
-      s.hp.style.width = (visible && !s.u.dead ? (s.u.hp / s.u.st.maxHp) * 100 : 0) + '%'
-      s.mp.style.width = (s.u.team === p.team && !s.u.dead ? (s.u.mana / Math.max(1, s.u.st.maxMana)) * 100 : 0) + '%'
+      setText(s.timer, s.u.dead ? String(Math.max(0, Math.ceil(hsx.respawnAt - w.time))) : '')
+      setStyle(s.hp, 'width', (visible && !s.u.dead ? (s.u.hp / s.u.st.maxHp) * 100 : 0) + '%')
+      setStyle(s.mp, 'width', (s.u.team === p.team && !s.u.dead ? (s.u.mana / Math.max(1, s.u.st.maxMana)) * 100 : 0) + '%')
     }
 
     // bottom: stats + bars
     const st = p.st
-    this.e.lvl.textContent = String(hs.level)
-    this.e.dmg.textContent = fmt(st.dmg)
-    this.e.arm.textContent = fmt(st.armor)
-    this.e.ms.textContent = String(Math.round(st.ms))
-    this.e.rng.textContent = String(Math.round(st.range))
-    this.e.str.textContent = String(Math.floor(st.str))
-    this.e.agi.textContent = String(Math.floor(st.agi))
-    this.e.int.textContent = String(Math.floor(st.int))
+    setText(this.e.lvl, String(hs.level))
+    setText(this.e.dmg, fmt(st.dmg))
+    setText(this.e.arm, fmt(st.armor))
+    setText(this.e.ms, String(Math.round(st.ms)))
+    setText(this.e.rng, String(Math.round(st.range)))
+    setText(this.e.str, String(Math.floor(st.str)))
+    setText(this.e.agi, String(Math.floor(st.agi)))
+    setText(this.e.int, String(Math.floor(st.int)))
     const bar = (el: HTMLElement, v: number, max: number, reg: number) => {
-      ;(el.querySelector('.fill') as HTMLElement).style.width = (max > 0 ? (v / max) * 100 : 0) + '%'
-      el.querySelector('.txt')!.textContent = `${Math.ceil(v)} / ${Math.round(max)}`
-      el.querySelector('.reg')!.textContent = `+${reg.toFixed(1)}`
+      setStyle(q(el, '.fill') as HTMLElement, 'width', (max > 0 ? (v / max) * 100 : 0) + '%')
+      setText(q(el, '.txt')!, `${Math.ceil(v)} / ${Math.round(max)}`)
+      setText(q(el, '.reg')!, `+${reg.toFixed(1)}`)
     }
     bar(this.e.hp, p.hp, st.maxHp, st.hpRegen)
     bar(this.e.mp, p.mana, st.maxMana, st.manaRegen)
     {
-      const xpEl = this.root.querySelector('.bar.xp') as HTMLElement
+      const xpEl = q(this.root, '.bar.xp') as HTMLElement
       const lv = hs.level
       const prev = lv <= 1 ? 0 : XP_TABLE[lv - 1]
       const next = XP_TABLE[lv]
       const maxed = lv >= MAX_LEVEL || next === undefined
       const frac = maxed ? 1 : Math.max(0, Math.min(1, (hs.xp - prev) / (next - prev)))
-      ;(xpEl.querySelector('.fill') as HTMLElement).style.width = frac * 100 + '%'
-      xpEl.querySelector('.txt')!.textContent = maxed ? 'MAX LEVEL' : `${Math.max(0, Math.ceil(next - hs.xp))} XP to level ${lv + 1}`
+      setStyle(q(xpEl, '.fill') as HTMLElement, 'width', frac * 100 + '%')
+      setText(q(xpEl, '.txt')!, maxed ? 'MAX LEVEL' : `${Math.max(0, Math.ceil(next - hs.xp))} XP to level ${lv + 1}`)
     }
-    this.e.gold.textContent = String(Math.floor(hs.gold))
+    setText(this.e.gold, String(Math.floor(hs.gold)))
 
     // abilities
     const list = this.g.abilityList()
     this.abil.forEach((el, i) => {
       const a: AbilityState | null = list[i]
-      if (i === 4) el.style.display = hs.def.id === 'rubick' ? '' : 'none'
+      if (i === 4) setStyle(el, 'display', hs.def.stealSlot ? '' : 'none')
       if (!a) {
         el.classList.add('empty')
-        ;(el.querySelector('.glyph') as HTMLElement).textContent = ''
-        ;(el.querySelector('.icon') as HTMLElement).style.background = ''
-        ;(el.querySelector('.cd') as HTMLElement).style.background = 'none'
-        ;(el.querySelector('.cdt') as HTMLElement).textContent = ''
-        ;(el.querySelector('.chg') as HTMLElement).textContent = ''
-        ;(el.querySelector('.mana') as HTMLElement).textContent = ''
+        setText(q(el, '.glyph') as HTMLElement, '')
+        setStyle(q(el, '.icon') as HTMLElement, 'background', '')
+        setStyle(q(el, '.cd') as HTMLElement, 'background', 'none')
+        setText(q(el, '.cdt') as HTMLElement, '')
+        setText(q(el, '.chg') as HTMLElement, '')
+        setText(q(el, '.mana') as HTMLElement, '')
         el.classList.remove('can-level')
         return
       }
       el.classList.remove('empty')
       const d = a.def
-      const icon = el.querySelector('.icon') as HTMLElement
-      icon.style.background = `radial-gradient(circle at 35% 30%, ${d.color}, #14161c 85%)`
-      ;(el.querySelector('.glyph') as HTMLElement).textContent = d.glyph
+      const icon = q(el, '.icon') as HTMLElement
+      setStyle(icon, 'background', `radial-gradient(circle at 35% 30%, ${d.color}, #14161c 85%)`)
+      setText(q(el, '.glyph') as HTMLElement, d.glyph)
       const learned = a.level > 0
       const cdTotal = d.charges ? d.charges.restore[Math.max(0, a.level - 1)] : d.cd[Math.max(0, a.level - 1)] || 0
       const remain = d.charges ? (a.charges < d.charges.max && a.chargeAt > 0 ? a.chargeAt - w.time : 0) : Math.max(0, a.cdUntil - w.time)
       const onCd = d.charges ? a.charges <= 0 || w.time < a.cdUntil : remain > 0
       const sweepRemain = d.charges ? (a.charges <= 0 ? remain : Math.max(0, a.cdUntil - w.time)) : remain
       const sweepTotal = d.charges ? (a.charges <= 0 ? cdTotal : 0.6) : cdTotal
-      const cdEl = el.querySelector('.cd') as HTMLElement
-      const cdt = el.querySelector('.cdt') as HTMLElement
+      const cdEl = q(el, '.cd') as HTMLElement
+      const cdt = q(el, '.cdt') as HTMLElement
       if (learned && onCd && sweepRemain > 0 && sweepTotal > 0) {
         const deg = (sweepRemain / sweepTotal) * 360
-        cdEl.style.background = `conic-gradient(rgba(0,0,0,0.72) ${deg}deg, rgba(0,0,0,0.0) 0deg)`
-        cdt.textContent = sweepRemain >= 10 ? String(Math.ceil(sweepRemain)) : sweepRemain.toFixed(1)
+        setStyle(cdEl, 'background', `conic-gradient(rgba(0,0,0,0.72) ${deg}deg, rgba(0,0,0,0.0) 0deg)`)
+        setText(cdt, sweepRemain >= 10 ? String(Math.ceil(sweepRemain)) : sweepRemain.toFixed(1))
       } else {
-        cdEl.style.background = 'none'
-        cdt.textContent = ''
+        setStyle(cdEl, 'background', 'none')
+        setText(cdt, '')
       }
-      ;(el.querySelector('.chg') as HTMLElement).textContent = d.charges && learned ? String(a.charges) : ''
+      setText(q(el, '.chg') as HTMLElement, d.charges && learned ? String(a.charges) : '')
       const mana = d.mana[Math.max(0, a.level - 1)] || 0
-      const manaEl = el.querySelector('.mana') as HTMLElement
-      manaEl.textContent = mana && d.behavior !== 'passive' ? String(mana) : ''
+      const manaEl = q(el, '.mana') as HTMLElement
+      setText(manaEl, mana && d.behavior !== 'passive' ? String(mana) : '')
       manaEl.classList.toggle('low', !!mana && p.mana < mana)
-      ;(el.querySelector('.key') as HTMLElement).style.display = d.behavior === 'passive' ? 'none' : ''
+      setStyle(q(el, '.key') as HTMLElement, 'display', d.behavior === 'passive' ? 'none' : '')
       el.classList.toggle('learned', learned)
       el.classList.toggle('nomana', learned && p.mana < mana)
       el.classList.toggle('passive', d.behavior === 'passive')
@@ -663,7 +705,7 @@ export class Hud {
       el.classList.toggle('can-level', i < 4 && w.canLevel(p, i))
       const pips = el.querySelectorAll('.pips i')
       pips.forEach((pp, k) => {
-        ;(pp as HTMLElement).style.display = k < d.maxLevel ? '' : 'none'
+        setStyle(pp as HTMLElement, 'display', k < d.maxLevel ? '' : 'none')
         pp.classList.toggle('f', k < a.level)
       })
     })
@@ -671,36 +713,37 @@ export class Hud {
     // items
     this.items.forEach((el, i) => {
       const it = hs.items[i]
-      const gl = el.querySelector('.glyph') as HTMLElement
+      const gl = q(el, '.glyph') as HTMLElement
       if (!it) {
-        gl.textContent = ''
+        setText(gl, '')
         gl.dataset.id = ''
-        el.style.background = ''
-        ;(el.querySelector('.chg') as HTMLElement).textContent = ''
-        ;(el.querySelector('.cd') as HTMLElement).style.background = 'none'
+        setStyle(el, 'background', '')
+        setText(q(el, '.chg') as HTMLElement, '')
+        setStyle(q(el, '.cd') as HTMLElement, 'background', 'none')
         el.classList.remove('has')
         return
       }
       el.classList.add('has')
-      el.style.background = `radial-gradient(circle at 50% 40%, ${it.def.color}55, #0e1014 80%)`
+      setStyle(el, 'background', `radial-gradient(circle at 50% 40%, ${it.def.color}55, #0e1014 80%)`)
       if (gl.dataset.id !== it.def.id) {
         gl.dataset.id = it.def.id
         gl.innerHTML = itemIcon(it.def.id)
+        ;(gl as any).__t = undefined // the icon replaced whatever setText last wrote
       }
-      ;(el.querySelector('.chg') as HTMLElement).textContent = it.def.consumable ? String(it.charges) : ''
+      setText(q(el, '.chg') as HTMLElement, it.def.consumable ? String(it.charges) : '')
       const rem = Math.max(0, it.cdUntil - w.time)
-      ;(el.querySelector('.cd') as HTMLElement).style.background = rem > 0 ? `conic-gradient(rgba(0,0,0,0.72) ${(rem / (it.def.cd || 15)) * 360}deg, transparent 0deg)` : 'none'
+      setStyle(q(el, '.cd') as HTMLElement, 'background', rem > 0 ? `conic-gradient(rgba(0,0,0,0.72) ${(rem / (it.def.cd || 15)) * 360}deg, transparent 0deg)` : 'none')
     })
 
     // teleport scroll stash
     {
-      const el = this.root.querySelector('#tpslot') as HTMLElement
-      const gl = el.querySelector('.glyph') as HTMLElement
+      const el = q(this.root, '#tpslot') as HTMLElement
+      const gl = q(el, '.glyph') as HTMLElement
       if (!gl.innerHTML) gl.innerHTML = itemIcon('tp')
-      ;(el.querySelector('.chg') as HTMLElement).textContent = String(hs.tpScrolls)
+      setText(q(el, '.chg') as HTMLElement, String(hs.tpScrolls))
       el.classList.toggle('empty', hs.tpScrolls <= 0)
       const rem = Math.max(0, hs.tpCd - w.time)
-      ;(el.querySelector('.cd') as HTMLElement).style.background = rem > 0 ? `conic-gradient(rgba(0,0,0,0.72) ${(rem / 20) * 360}deg, transparent 0deg)` : 'none'
+      setStyle(q(el, '.cd') as HTMLElement, 'background', rem > 0 ? `conic-gradient(rgba(0,0,0,0.72) ${(rem / 20) * 360}deg, transparent 0deg)` : 'none')
       if (!el.dataset.bound) {
         el.dataset.bound = '1'
         el.addEventListener('mousedown', (ev) => {
@@ -712,25 +755,23 @@ export class Hud {
 
     // respawn
     if (p.dead) {
-      this.e.respawn.textContent = `Respawning in ${Math.max(0, Math.ceil(hs.respawnAt - w.time))}`
+      setText(this.e.respawn, `Respawning in ${Math.max(0, Math.ceil(hs.respawnAt - w.time))}`)
       this.e.respawn.classList.add('on')
     } else this.e.respawn.classList.remove('on')
 
     // feed
-    const fk = w.feed.map((f) => f.t + f.text).join('|')
     const lines = w.feed.filter((f) => w.time - f.t < 9)
     const key = lines.map((f) => f.t + f.text).join('|')
     if (key !== this.feedKey) {
       this.feedKey = key
-      this.e.feed.innerHTML = lines.map((f) => `<div class="fl t${f.team}">${f.text}</div>`).join('')
+      this.e.feed.innerHTML = lines.map((f) => `<div class="fl t${f.team}">${esc(f.text)}</div>`).join('')
     }
-    void fk
 
     this.updateUnitInfo()
 
     // camera / quick buttons state
-    this.root.querySelector('#b-cam')!.classList.toggle('on', this.g.camLocked)
-    this.root.querySelector('#b-quick')!.classList.toggle('on', this.g.quickCast)
+    q(this.root, '#b-cam')!.classList.toggle('on', this.g.camLocked)
+    q(this.root, '#b-quick')!.classList.toggle('on', this.g.quickCast)
 
     if (this.shopOpen) {
       this.renderShop()

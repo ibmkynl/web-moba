@@ -1,13 +1,11 @@
-import type { AbilityDef, Buff } from '../sim/entities'
+import type { Buff } from '../sim/entities'
 import { AbilityState, HeroState, Unit } from '../sim/entities'
-import { HEROES, HERO_BY_ID } from '../sim/heroes'
+import { ABILITY_BY_ID, HERO_BY_ID } from '../sim/heroes'
 import { ITEM_BY_ID } from '../sim/items'
-import { World } from '../sim/world'
+import { World, inAudience, reaches, type Announcement, type Audience } from '../sim/world'
 
 /* ------------------------------------------------------------------ registry */
 
-const ABILITY_BY_ID: Record<string, AbilityDef> = {}
-for (const h of HEROES) for (const a of h.abilities) ABILITY_BY_ID[a.id] = a
 
 /* ------------------------------------------------------------------ types */
 
@@ -106,15 +104,26 @@ export interface Snapshot {
   winner: number | null
   nextPower: number
   queue: { h: number; d: string }[][]
+  /** one-shot events, already filtered for the receiving player; sfx[3] = 1 when the event concerns them */
   ev: {
-    sfx: [string, number, number, number, string][]
-    ann: [string, string, number | undefined, boolean][]
+    sfx: [string, number, number, 0 | 1, string][]
+    ann: Announcement[]
     txt: [number, number, string, string, number][]
     vfx: any[]
   }
 }
 
-const EX_KEYS = ['owner', 'liftStart', 'liftEnd', 'delivering', 'color', 'mega', 'noAuto', 'ping', 'tpUntil']
+/** Events collected on the host between two snapshots, still tagged with their audience. */
+export interface HostEvents {
+  sfx: [string, number, number, Audience | undefined, string][]
+  ann: Announcement[]
+  txt: [number, number, string, string, number, Audience | undefined][]
+  vfx: any[]
+}
+
+/** Typed Unit fields the client needs, sent as `ex` (the only path engine state takes over the wire, plus tk below). */
+const NET_KEYS = ['courierOf', 'liftStart', 'liftEnd', 'delivering', 'tint', 'mega', 'noAuto', 'ping', 'tpUntil'] as const
+const NET_DEFAULT: Record<(typeof NET_KEYS)[number], unknown> = { courierOf: 0, liftStart: 0, liftEnd: 0, delivering: false, tint: '', mega: false, noAuto: false, ping: undefined, tpUntil: 0 }
 const NON_HERO_ST = ['maxHp', 'armor', 'dmg', 'ms', 'range', 'bat', 'ap', 'projSpeed']
 
 /* ------------------------------------------------------------- serialization */
@@ -133,10 +142,10 @@ function buffSnap(b: Buff) {
 
 const abSnap = (a: AbilityState): AbSnap => ({ i: a.def.id, lv: a.level, cd: +a.cdUntil.toFixed(2), ch: a.charges, ca: +a.chargeAt.toFixed(2), tg: a.toggled ? 1 : 0, ex: a.expires || undefined })
 
-export function unitSnap(u: Unit): UnitSnap {
+function unitSnap(u: Unit): UnitSnap {
   const s: UnitSnap = {
     id: u.id, tm: u.team, k: u.kind, sb: u.sub, nm: u.name, r: u.radius,
-    x: +u.x.toFixed(1), y: +u.y.toFixed(1), f: +u.facing.toFixed(2), vx: Math.round(u.vx), vy: Math.round(u.vy),
+    x: Math.round(u.x), y: Math.round(u.y), f: +u.facing.toFixed(2), vx: Math.round(u.vx), vy: Math.round(u.vy),
     hp: Math.round(u.hp), mp: Math.round(u.mana), dead: u.dead ? 1 : 0, dAt: +u.deadAt.toFixed(2), lk: u.locked ? 1 : 0,
     hit: +u.hitAt.toFixed(2), tr: u.tier, ln: u.lane,
   }
@@ -154,8 +163,8 @@ export function unitSnap(u: Unit): UnitSnap {
   if (u.casting) s.cs = { a: u.casting.st.def.id, t: u.casting.target?.id ?? 0, s: +u.casting.start.toFixed(2), e: +u.casting.end.toFixed(2), x: Math.round(u.casting.x), y: Math.round(u.casting.y) }
   if (u.channel) s.chn = { a: u.channel.st.def.id, t: u.channel.target?.id ?? 0, u: +u.channel.until.toFixed(2) }
   const ex: Record<string, any> = {}
-  for (const k of EX_KEYS) if (u.extra[k] !== undefined && typeof u.extra[k] !== 'object') ex[k] = u.extra[k]
-  if (u.extra.tk) ex.tk = { end: u.extra.tk.end, sx: u.extra.tk.start.x, sy: u.extra.tk.start.y }
+  for (const k of NET_KEYS) if (u[k] !== NET_DEFAULT[k]) ex[k] = u[k]
+  if (u.tk) ex.tk = { end: u.tk.end, sx: u.tk.start.x, sy: u.tk.start.y }
   if (Object.keys(ex).length) s.ex = ex
   if (u.h) {
     const h = u.h
@@ -163,26 +172,41 @@ export function unitSnap(u: Unit): UnitSnap {
       d: h.def.id, lv: h.level, xp: Math.round(h.xp), pt: h.points, g: Math.round(h.gold),
       it: h.items.map((i) => (i ? { i: i.def.id, c: i.charges, cd: +i.cdUntil.toFixed(2) } : null)),
       ab: h.abilities.map(abSnap), sl: h.stolen ? abSnap(h.stolen) : null,
-      k: h.kills, de: h.deaths, as: h.assists, lh: h.lh, dn: h.dn, rs: +h.respawnAt.toFixed(2), pl: h.isPlayer ? 1 : 0, ln: h.lane, sk: h.streak, ea: Math.round(h.earned), hd: Math.round(h.heroDmg), td: Math.round(h.towerDmg), pn: h.pname, tp: h.tpScrolls, tc: +h.tpCd.toFixed(2),
+      k: h.kills, de: h.deaths, as: h.assists, lh: h.lh, dn: h.dn, rs: +h.respawnAt.toFixed(2), pl: h.isHuman ? 1 : 0, ln: h.lane, sk: h.streak, ea: Math.round(h.earned), hd: Math.round(h.heroDmg), td: Math.round(h.towerDmg), pn: h.pname, tp: h.tpScrolls, tc: +h.tpCd.toFixed(2),
     }
   }
   return s
 }
 
 /** Roster-only stub for an enemy hero that the receiving team cannot currently see. */
-function stubSnap(u: Unit): UnitSnap {
-  const full = unitSnap(u)
+function stubSnap(u: Unit, full: UnitSnap): UnitSnap {
   return { id: full.id, tm: full.tm, k: full.k, sb: full.sb, nm: full.nm, r: full.r, hid: 1, dead: full.dead, h: full.h, st: { maxHp: u.st.maxHp } as any, hp: full.hp, ex: full.ex }
 }
 
-export function snapshotFor(w: World, team: 0 | 1, meId: number, seq: number, ev: Snapshot['ev']): Snapshot {
+/** Unit records for one host tick, built once and shared by every player's snapshot (stubs too). */
+export class Frame {
+  private full = new Map<Unit, UnitSnap>()
+  private stubs = new Map<Unit, UnitSnap>()
+  unit(u: Unit) {
+    let r = this.full.get(u)
+    if (!r) this.full.set(u, (r = unitSnap(u)))
+    return r
+  }
+  stub(u: Unit) {
+    let r = this.stubs.get(u)
+    if (!r) this.stubs.set(u, (r = stubSnap(u, this.unit(u))))
+    return r
+  }
+}
+
+export function snapshotFor(w: World, team: 0 | 1, meId: number, seq: number, ev: HostEvents, frame = new Frame()): Snapshot {
   const vis = w.vis[team]
   const units: UnitSnap[] = []
   for (const u of w.units) {
     if (u.dead && u.kind === 'creep' && w.time - u.deadAt > 1) continue
     if (u.kind === 'hero') {
-      units.push(u.team === team || vis.has(u.id) ? unitSnap(u) : stubSnap(u))
-    } else if (u.isBuilding || vis.has(u.id) || u.team === team) units.push(unitSnap(u))
+      units.push(u.team === team || vis.has(u.id) ? frame.unit(u) : frame.stub(u))
+    } else if (u.isBuilding || vis.has(u.id) || u.team === team) units.push(frame.unit(u))
   }
   const projs: ProjSnap[] = []
   for (const p of w.projs) {
@@ -198,7 +222,8 @@ export function snapshotFor(w: World, team: 0 | 1, meId: number, seq: number, ev
       draw: p.draw, style: p.style, color: p.color, size: p.size, ph: p.phase, tr: Math.round(p.traveled), rad: p.radius,
     })
   }
-  const courier = w.courierFor(w.heroes.find((h) => h.id === meId) as Unit)
+  const me = w.heroes.find((h) => h.id === meId)
+  const courier = me ? w.courierFor(me) : undefined
   return {
     t: +w.time.toFixed(3), seq, me: meId, units, projs,
     zones: w.zones.map((z) => ({ x: z.x, y: z.y, r: z.r, team: z.team, start: z.start, end: z.end, color: z.color, kind: z.kind, reveal: z.reveal ? 1 : 0, oid: z.owner.id })),
@@ -206,30 +231,199 @@ export function snapshotFor(w: World, team: 0 | 1, meId: number, seq: number, ev
     wards: w.wards.filter((d) => d.team === team).map((d) => ({ id: d.id, x: d.x, y: d.y, team: d.team, expires: d.expires })),
     kills: [w.kills[0], w.kills[1]], feed: w.feed.slice(-8), winner: w.winner, nextPower: w.nextPowerRune,
     queue: [(courier?.extra.queue || []).map((e: any) => ({ h: e.heroId, d: e.def.id })), (courier?.extra.carry || []).map((e: any) => ({ h: e.heroId, d: e.def.id }))],
-    ev,
+    ev: {
+      sfx: ev.sfx.filter((e) => reaches(e[3], me)).map((e) => [e[0], e[1], e[2], inAudience(e[3], me) ? 1 : 0, e[4]]),
+      ann: ev.ann,
+      txt: ev.txt.filter((e) => reaches(e[5], me)).map((e) => [e[0], e[1], e[2], e[3], e[4]]),
+      vfx: ev.vfx,
+    },
+  }
+}
+
+/* ------------------------------------------------------------- delta encoding */
+
+/**
+ * Wire format: each player gets only what changed since the last message on their connection (WebSocket is ordered
+ * and reliable, so no acks are needed). `key` marks a full keyframe (join, resume, or a decoder that fell out of step).
+ */
+export interface DeltaSnap {
+  t: number
+  seq: number
+  me: number
+  key?: 1
+  /** changed unit fields by id; `$x` lists removed fields; `h` with `$: 1` is a patch of the hero record */
+  u: any[]
+  /** units no longer sent */
+  gone?: number[]
+  projs: ProjSnap[]
+  ev: Snapshot['ev']
+  /** top-level fields, present only when changed */
+  top?: Partial<Pick<Snapshot, (typeof TOP)[number]>>
+}
+const TOP = ['zones', 'runes', 'wards', 'kills', 'feed', 'winner', 'nextPower', 'queue'] as const
+
+type FieldMap = Map<string, unknown>
+const enc = (v: unknown) => (v === null || typeof v !== 'object' ? v : JSON.stringify(v))
+/** Comparable form of each field (objects as JSON), memoised per record so all players share the work. */
+const fieldCache = new WeakMap<object, FieldMap>()
+function fieldsOf(o: Record<string, any>, skip?: string): FieldMap {
+  let m = fieldCache.get(o)
+  if (!m) {
+    m = new Map()
+    for (const k of Object.keys(o)) if (k !== skip && o[k] !== undefined) m.set(k, enc(o[k]))
+    fieldCache.set(o, m)
+  }
+  return m
+}
+function diff(cur: FieldMap, prev: FieldMap, src: Record<string, any>, out: Record<string, any>) {
+  let n = 0
+  for (const [k, v] of cur) {
+    if (prev.get(k) !== v) {
+      out[k] = src[k]
+      n++
+    }
+  }
+  const gone = [...prev.keys()].filter((k) => !cur.has(k))
+  if (gone.length) {
+    out.$x = gone
+    n++
+  }
+  return n
+}
+
+/** Host side, one per connection: turns full snapshots into deltas against what this player already has. */
+export class SnapshotEncoder {
+  private units = new Map<number, { f: FieldMap; h?: FieldMap }>()
+  private top = new Map<string, unknown>()
+  /** Next message is a keyframe (call on join / resume). */
+  reset() {
+    this.units.clear()
+    this.top.clear()
+  }
+  encode(s: Snapshot): DeltaSnap {
+    const key = this.units.size === 0 && this.top.size === 0
+    const u: any[] = []
+    const seen = new Set<number>()
+    for (const r of s.units) {
+      seen.add(r.id)
+      const f = fieldsOf(r, 'h')
+      const h = r.h ? fieldsOf(r.h) : undefined
+      const prev = this.units.get(r.id)
+      this.units.set(r.id, { f, h })
+      if (!prev) {
+        u.push(r)
+        continue
+      }
+      const d: any = { id: r.id }
+      let n = diff(f, prev.f, r, d)
+      if (h) {
+        if (prev.h) {
+          const hd: any = { $: 1 }
+          if (diff(h, prev.h, r.h!, hd)) {
+            d.h = hd
+            n++
+          }
+        } else {
+          d.h = r.h
+          n++
+        }
+      } else if (prev.h) {
+        ;(d.$x ??= []).push('h')
+        n++
+      }
+      if (n) u.push(d)
+    }
+    const gone: number[] = []
+    for (const id of this.units.keys()) {
+      if (!seen.has(id)) {
+        gone.push(id)
+        this.units.delete(id)
+      }
+    }
+    const top: Record<string, unknown> = {}
+    let nt = 0
+    for (const k of TOP) {
+      const v = enc(s[k])
+      if (this.top.get(k) !== v || key) {
+        this.top.set(k, v)
+        top[k] = s[k]
+        nt++
+      }
+    }
+    const out: DeltaSnap = { t: s.t, seq: s.seq, me: s.me, u, projs: s.projs, ev: s.ev }
+    if (key) out.key = 1
+    if (gone.length) out.gone = gone
+    if (nt) out.top = top
+    return out
+  }
+}
+
+/** Client side: rebuilds full snapshots from deltas. Returns null for a message that cannot be applied. */
+export class SnapshotDecoder {
+  private units = new Map<number, UnitSnap>()
+  private top: Partial<Snapshot> = {}
+  private seq = -1
+  decode(d: DeltaSnap): Snapshot | null {
+    if (d.key) {
+      this.units.clear()
+      this.top = {}
+    } else if (d.seq <= this.seq) return null // stale (from before a resume)
+    this.seq = d.seq
+    for (const r of d.u) {
+      const cur = this.units.get(r.id)
+      if (!cur) {
+        this.units.set(r.id, { ...r })
+        continue
+      }
+      for (const k of Object.keys(r)) {
+        if (k === '$x') continue
+        const v = r[k]
+        if (k === 'h' && v && v.$ === 1 && cur.h) {
+          for (const hk of Object.keys(v)) if (hk !== '$' && hk !== '$x') (cur.h as any)[hk] = v[hk]
+          if (v.$x) for (const hk of v.$x) delete (cur.h as any)[hk]
+        } else (cur as any)[k] = v
+      }
+      if (r.$x) for (const k of r.$x) delete (cur as any)[k]
+    }
+    if (d.gone) for (const id of d.gone) this.units.delete(id)
+    if (d.top) Object.assign(this.top, d.top)
+    const t = this.top as Snapshot
+    return {
+      t: d.t, seq: d.seq, me: d.me, units: [...this.units.values()], projs: d.projs, ev: d.ev,
+      zones: t.zones ?? [], runes: t.runes ?? [], wards: t.wards ?? [], kills: t.kills ?? [0, 0], feed: t.feed ?? [], winner: t.winner ?? null,
+      nextPower: t.nextPower ?? 0, queue: t.queue ?? [[], []],
+    }
   }
 }
 
 /* -------------------------------------------------------------------- replica */
 
-interface Interp {
-  fx: number
-  fy: number
-  tx: number
-  ty: number
-  at: number
+/** One server position of a unit, stamped with server time. */
+interface Sample {
+  t: number
+  x: number
+  y: number
 }
+/** Samples kept per unit: enough to cover the interpolation delay plus a late packet. */
+const HISTORY = 6
+/** Positions further apart than this between two snapshots are teleports: no sliding. */
+const SNAP_DIST = 450
 
 export class Replica {
   world: World
   meId = 0
   seq = 0
-  private interp = new Map<number, Interp>()
+  /** per-unit server positions; units are drawn `delay` seconds behind the newest snapshot, between two samples */
+  private hist = new Map<number, Sample[]>()
+  /** estimated server time minus local time (s), tracking the earliest-arriving snapshots */
+  private offset: number | null = null
+  /** smoothed lateness of snapshots relative to `offset` (s) */
+  private jitter = 0
+  /** smoothed server time between snapshots (s) */
+  private gap = 0.05
+  delay = 0.1
   private recvAt = 0
-  private interval = 50
-  private lastRecv = 0
   private snapT = 0
-  private nextPowerFrom = 0
 
   constructor() {
     this.world = new World({ playerHero: 'pudge', playerLane: 'mid' }, true)
@@ -263,8 +457,7 @@ export class Replica {
   apply(snap: Snapshot, now: number) {
     const w = this.world
     this.meId = snap.me
-    this.interval = Math.max(20, Math.min(120, now - this.lastRecv || 50))
-    this.lastRecv = now
+    this.trackClock(snap.t, now / 1000)
     this.recvAt = now
     this.snapT = snap.t
     w.time = snap.t
@@ -286,25 +479,26 @@ export class Replica {
       }
       if (s.hid) {
         // hidden enemy hero: roster info only
-        u.extra.stub = true
+        u.stub = true
+        this.hist.delete(u.id)
         u.dead = !!s.dead
         u.hp = s.hp ?? 0
         u.st.maxHp = s.st?.maxHp ?? 1
         this.applyHero(u, s)
         continue
       }
-      u.extra.stub = false
+      u.stub = false
       visIds.add(u.id)
-      // interpolation target
-      const prev = this.interp.get(u.id)
-      const jump = prev && Math.hypot(u.x - s.x!, u.y - s.y!) > 450
-      if (!prev || jump) {
+      // interpolation history
+      let h = this.hist.get(u.id)
+      const last = h?.[h.length - 1]
+      if (!h || !last || Math.hypot(last.x - s.x!, last.y - s.y!) > SNAP_DIST) {
+        this.hist.set(u.id, (h = []))
         u.x = s.x!
         u.y = s.y!
-        this.interp.set(u.id, { fx: s.x!, fy: s.y!, tx: s.x!, ty: s.y!, at: now })
-      } else {
-        this.interp.set(u.id, { fx: u.x, fy: u.y, tx: s.x!, ty: s.y!, at: now })
       }
+      if (!last || snap.t > last.t) h.push({ t: snap.t, x: s.x!, y: s.y! })
+      if (h.length > HISTORY) h.shift()
       u.facing = s.f!
       u.vx = s.vx!
       u.vy = s.vy!
@@ -319,9 +513,8 @@ export class Replica {
       if (s.st) for (const k of Object.keys(s.st)) (u.st as any)[k] = s.st[k]
       u.buffs = (s.b || []) as any
       for (const b of u.buffs as any[]) if (b.taunt === true) b.taunt = u
-      u.extra = { ...u.extra, ...(s.ex || {}), stub: false }
-      if (!s.ex?.tk) delete u.extra.tk
-      else u.extra.tk = { end: s.ex.tk.end, start: { x: s.ex.tk.sx, y: s.ex.tk.sy } }
+      for (const k of NET_KEYS) (u as any)[k] = s.ex?.[k] ?? NET_DEFAULT[k]
+      u.tk = s.ex?.tk ? { end: s.ex.tk.end, start: { x: s.ex.tk.sx, y: s.ex.tk.sy } } : null
       if (u.kind === 'hero') this.applyHero(u, s)
       u.attackWind = null
       u.casting = null
@@ -347,7 +540,7 @@ export class Replica {
     // remove units that are no longer sent
     if (w.units.some((u) => !seen.has(u.id))) {
       const dead = w.units.filter((u) => !seen.has(u.id))
-      for (const u of dead) this.interp.delete(u.id)
+      for (const u of dead) this.hist.delete(u.id)
       w.units = w.units.filter((u) => seen.has(u.id))
       w.heroes = w.heroes.filter((u) => seen.has(u.id))
       w.towers = w.towers.filter((u) => seen.has(u.id))
@@ -395,8 +588,8 @@ export class Replica {
     }
 
     // one-shot events
-    for (const e of snap.ev.sfx) w.onEvent?.(e[0], e[1], e[2], e[3] === team, e[4])
-    for (const a of snap.ev.ann) w.onAnnounce?.(a[0], a[1], a[2], a[3])
+    for (const e of snap.ev.sfx) w.onEvent?.(e[0], e[1], e[2], e[3] ? { all: true } : undefined, e[4])
+    for (const a of snap.ev.ann) w.onAnnounce?.(a)
     for (const t of snap.ev.txt) w.text(t[0], t[1], t[2], t[3], t[4])
     for (const v of snap.ev.vfx) {
       const o: any = { ...v }
@@ -405,7 +598,6 @@ export class Replica {
     }
     if (w.vfxQ.length > 200) w.vfxQ.splice(0, w.vfxQ.length - 200)
     // team-wide gold/xp popups etc come through txt events
-    void this.nextPowerFrom
   }
 
   private findAbility(u: Unit, id: string): AbilityState | null {
@@ -430,7 +622,7 @@ export class Replica {
     h.lh = hs.lh
     h.dn = hs.dn
     h.respawnAt = hs.rs
-    h.isPlayer = !!hs.pl
+    h.isHuman = !!hs.pl
     h.lane = hs.ln as any
     h.streak = hs.sk
     h.pname = hs.pn
@@ -439,7 +631,7 @@ export class Replica {
     h.earned = hs.ea
     h.heroDmg = hs.hd
     h.towerDmg = hs.td
-    if (s.ex) u.extra.ping = s.ex.ping
+    if (s.ex) u.ping = s.ex.ping
     h.items = hs.it.map((i) => (i ? { def: ITEM_BY_ID[i.i], charges: i.c, cdUntil: i.cd } : null))
     h.abilities.forEach((a, idx) => {
       const as = hs.ab[idx]
@@ -448,16 +640,39 @@ export class Replica {
     h.stolen = hs.sl ? this.abState(hs.sl, h.stolen ?? undefined) : null
   }
 
-  /** Per-frame: smooth positions between snapshots and advance the clock. */
+  /** Keeps the server-clock estimate and the interpolation delay up to date (Valve/Gambetta-style entity interpolation). */
+  private trackClock(serverT: number, local: number) {
+    const off = serverT - local
+    if (this.offset === null || Math.abs(off - this.offset) > 1) {
+      this.offset = off
+      this.jitter = 0
+    } else {
+      const late = this.offset - off
+      // an early packet moves the estimate up at once; the slow downward drift absorbs clock skew
+      this.offset = late < 0 ? off : this.offset - late * 0.02
+      this.jitter += (Math.max(0, late) - this.jitter) * 0.1
+    }
+    if (serverT > this.snapT && this.snapT > 0) this.gap += (Math.min(0.25, serverT - this.snapT) - this.gap) * 0.1
+    // one snapshot gap plus room for typical lateness, so a single late packet never freezes units
+    this.delay = Math.max(0.06, Math.min(0.25, this.gap * 1.5 + this.jitter * 2))
+  }
+
+  /** Per-frame: place units between the two snapshots around (server now - delay) and advance the clock. */
   update(now: number) {
     const w = this.world
-    const k = (t: number) => Math.max(0, Math.min(1, (now - t) / this.interval))
+    if (this.offset === null) return
+    const rt = now / 1000 + this.offset - this.delay
     for (const u of w.units) {
-      const it = this.interp.get(u.id)
-      if (!it) continue
-      const a = k(it.at)
-      u.x = it.fx + (it.tx - it.fx) * a
-      u.y = it.fy + (it.ty - it.fy) * a
+      const h = this.hist.get(u.id)
+      if (!h || !h.length) continue
+      let i = h.length - 1
+      while (i > 0 && h[i - 1].t > rt) i--
+      // i = first sample at or after rt (or the newest when rt is past every sample)
+      const b = h[i]
+      const a = i > 0 ? h[i - 1] : b
+      const k = b.t > a.t ? Math.max(0, Math.min(1, (rt - a.t) / (b.t - a.t))) : 1
+      u.x = a.x + (b.x - a.x) * k
+      u.y = a.y + (b.y - a.y) * k
     }
     w.time = this.snapT + Math.min(0.12, (now - this.recvAt) / 1000)
   }

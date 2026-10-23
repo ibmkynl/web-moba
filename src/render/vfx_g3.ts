@@ -1,95 +1,17 @@
 import * as THREE from 'three'
 import type { CustomVfx, Vfx } from './vfx'
+import { ADD, P, PI, type PosOf, type V3, anim, clamp, easeOut, easeOutBack, later, mkTex, unitP } from './vfxkit'
 
 /**
  * Hero-specific visual effects (g3): Crystal Maiden, Pugna, Silencer.
  * Key = effect name used with `w.vfx(name, opts)`. Coordinates: game (x, y) -> three (x, height, y).
  */
 
-type PosOf = ((u: { x: number; y: number }) => THREE.Vector3 | null | undefined) | undefined
-type V3 = THREE.Vector3
 
-const PI = Math.PI
-const P = (x: number, y: number, h = 0) => new THREE.Vector3(x, h, y)
-const clamp = (x: number, a = 0, b = 1) => Math.max(a, Math.min(b, x))
-const easeOut = (k: number) => 1 - (1 - k) * (1 - k)
-const easeOutBack = (k: number) => {
-  const c1 = 1.70158
-  const c3 = c1 + 1
-  return 1 + c3 * Math.pow(k - 1, 3) + c1 * Math.pow(k - 1, 2)
-}
-const ADD = THREE.AdditiveBlending
 
-function disposeObj(o: THREE.Object3D) {
-  o.traverse((c) => {
-    const m = c as THREE.Mesh
-    m.geometry?.dispose()
-    const mt = m.material as THREE.Material | THREE.Material[] | undefined
-    if (Array.isArray(mt)) mt.forEach((x) => x.dispose())
-    else mt?.dispose?.()
-  })
-}
 
-/** Add an object to the scene for `dur` seconds; `step(k, dt, t)` animates it (return false to end early). */
-function anim(v: Vfx, obj: THREE.Object3D, dur: number, step: (k: number, dt: number, t: number) => boolean | void) {
-  v.scene.add(obj)
-  let t = 0
-  let done = false
-  const end = () => {
-    if (done) return
-    done = true
-    v.scene.remove(obj)
-    disposeObj(obj)
-  }
-  v.live.push({
-    update: (dt: number) => {
-      t += dt
-      const k = t / dur
-      if (k >= 1) {
-        end()
-        return false
-      }
-      if (step(k, dt, t) === false) {
-        end()
-        return false
-      }
-      return true
-    },
-    dispose: end,
-  })
-}
 
-/** Run `fn` after `sec` seconds of effect time. */
-function later(v: Vfx, sec: number, fn: () => void) {
-  let t = 0
-  v.live.push({
-    update: (dt: number) => {
-      t += dt
-      if (t >= sec) {
-        fn()
-        return false
-      }
-      return true
-    },
-    dispose: () => {},
-  })
-}
 
-/* ------------------------------------------------------------------ textures */
-
-const texCache: Record<string, THREE.CanvasTexture> = {}
-function mkTex(key: string, draw: (g: CanvasRenderingContext2D, s: number) => void, s = 256) {
-  let t = texCache[key]
-  if (!t) {
-    const c = document.createElement('canvas')
-    c.width = c.height = s
-    draw(c.getContext('2d')!, s)
-    t = new THREE.CanvasTexture(c)
-    t.colorSpace = THREE.SRGBColorSpace
-    texCache[key] = t
-  }
-  return t
-}
 
 function rng(seed: number) {
   let a = seed
@@ -317,7 +239,6 @@ function haloRing(
     grp.rotation.y = t * (o.spin ?? 1.2)
     inner.grp.rotation.y = -t * (o.spin ?? 1.2) * 2.2
     grp.scale.set(radius * pul * (0.6 + 0.4 * easeOutBack(clamp(t / 0.3))), 1, radius * pul * (0.6 + 0.4 * easeOutBack(clamp(t / 0.3))))
-    void k
   })
 }
 
@@ -442,7 +363,6 @@ function tube(v: Vfx, a: () => V3 | null, b: () => V3 | null, dur: number, color
   })
 }
 
-const unitP = (posOf: PosOf, u: { x: number; y: number } | undefined, fb: V3): V3 => (u && posOf?.(u)) || fb
 
 /* ------------------------------------------------------------ ice mesh helpers */
 
@@ -597,7 +517,6 @@ export const VFX_G3: Record<string, CustomVfx> = {
       })
       funnel.rotation.y = t * 1.5
       ;(funnel.material as THREE.MeshBasicMaterial).opacity = 0.07 * f
-      void k
     })
     swirl(v, { pos: () => (c.dead ? null : P(here().x, here().z, 0)), n: 130, r0: 90, r1: r * 0.92, h0: 8, h1: 330, color: '#e6f6ff', size: 65, dur, spin: 1.8, rise: -55, alive: () => !c.dead && !!c.channel, peak: 0.85 })
     swirl(v, { pos: () => (c.dead ? null : P(here().x, here().z, 0)), n: 40, r0: 60, r1: 330, h0: 10, h1: 300, color: '#7fd4ff', size: 110, dur, spin: 2.4, rise: 35, alive: () => !c.dead && !!c.channel, peak: 0.4 })
@@ -913,7 +832,6 @@ export const VFX_G3: Record<string, CustomVfx> = {
         grp.scale.set(s, 1, s)
         grp.rotation.y = kk * 4 * (i % 2 ? -1 : 1)
         mat.opacity = 0.85 * Math.sin(Math.min(1, kk * 1.0) * PI * 0.5 + (kk > 0.4 ? 0 : 0)) * (1 - kk)
-        void k
       })
     }
     groundSigil(v, texArcane(), '#b890e8', p, 150, 1.2, { spin: 2, peak: 0.8 })
@@ -925,7 +843,6 @@ export const VFX_G3: Record<string, CustomVfx> = {
 
   // Global Silence cast: enormous expanding shockwave from Silencer
   silencer_global_cast: (v, e, posOf) => {
-    const c = e.unit as any
     const p = P(e.x, e.y)
     const maxR = e.r ?? 2400
     v.ring(p, 40, maxR, 1.4, '#d0b8ff', 0.035)
@@ -947,8 +864,6 @@ export const VFX_G3: Record<string, CustomVfx> = {
     v.column(p, 70, 700, 0.9, '#c8a8ff')
     v.emit({ pos: P(e.x, e.y, 20), kind: 'ember', color: '#e8d8ff', color2: '#7a40d0', burst: 80, shape: 'donut', radius: 420, speed: [60, 220], size: [16, 34], life: [0.8, 1.6], force: [0, 140, 0], max: 100 })
     v.emit({ pos: P(e.x, e.y, 80), color: '#d0b8ff', alpha: 0.6, burst: 1, speed: [0, 0], size: [700, 700], life: [0.3, 0.3], sizeEnd: 1.8 })
-    void c
-    void posOf
   },
 
   // Global Silence on a victim: rune circle pulse + persistent rune ring above the head

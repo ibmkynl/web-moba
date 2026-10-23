@@ -7,25 +7,17 @@ import { WebSocketServer, type WebSocket } from 'ws'
 import { HEROES } from '../src/sim/heroes'
 import { Unit } from '../src/sim/entities'
 import { World } from '../src/sim/world'
-import type { Lane } from '../src/sim/constants'
-import { snapshotFor, type Snapshot } from '../src/net/snapshot'
+import { LANE_SLOTS, STEP, shuffle, type Lane } from '../src/sim/constants'
+import { Frame, SnapshotEncoder, snapshotFor, type HostEvents } from '../src/net/snapshot'
+import { randomBytes } from 'node:crypto'
 
 const PORT = Number(process.env.PORT || 8080)
-const STEP = 1 / 60
 const SNAP_EVERY = 3 // ticks per snapshot (20 Hz)
 const COUNTDOWN_MS = 5000
-const LANE_SLOTS: Lane[] = ['top', 'top', 'mid', 'bot', 'bot']
+/** How long a disconnected player's hero waits (bot-controlled) for them to resume. Only applies while another human keeps the match running: when everyone has left it ends after 30 s. */
+const RESUME_MS = 120000
 const DIST = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
-const shuffle = <T,>(a: T[]) => {
-  const r = [...a]
-  for (let i = r.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[r[i], r[j]] = [r[j], r[i]]
-  }
-  return r
-}
-const randHero = () => HEROES[Math.floor(Math.random() * HEROES.length)].id
 /** A random hero not already used by any other seat (heroes are unique across both teams). */
 const uniqueFor = (team: 0 | 1, exceptSeat: number, avoid: string[] = []) => {
   const used = new Set<string>(avoid)
@@ -53,7 +45,12 @@ interface Player {
   name: string
   seat: number
   ping: number
+  /** secret that lets this player take their hero back after a disconnect */
+  token: string
+  enc: SnapshotEncoder
 }
+/** Heroes of disconnected players, by resume token. */
+const away = new Map<string, { hero: Unit; seat: number; name: string; at: number }>()
 
 let phase: 'lobby' | 'playing' | 'ended' = 'lobby'
 let nextPid = 1
@@ -122,7 +119,7 @@ let heroOf = new Map<number, Unit>() // pid -> hero unit
 let tickCount = 0
 let seq = 0
 let endAt = 0
-const pending = { sfx: [] as any[], ann: [] as any[], txt: [] as any[] }
+const pending: Omit<HostEvents, 'vfx'> = { sfx: [], ann: [], txt: [] }
 
 function sanitize(o: any): any {
   const out: any = {}
@@ -144,10 +141,11 @@ function startGame() {
   seats.forEach((s, i) => {
     if (s.kind === 'human' && s.pid !== null) heroOf.set(s.pid, w.heroes[i])
   })
-  w.onEvent = (k, x, y, mine, tag) => pending.sfx.push([k, Math.round(x), Math.round(y), mine ? w.player.team : -1, tag || ''])
-  w.onAnnounce = (text, sub, team, epic) => pending.ann.push([text, sub, team, epic])
-  w.text = (x: number, y: number, text: string, color = '#fff', size = 16) => {
-    pending.txt.push([Math.round(x), Math.round(y), text, color, size])
+  // events keep their audience; snapshotFor filters them for each player
+  w.onEvent = (k, x, y, to, tag) => pending.sfx.push([k, Math.round(x), Math.round(y), to, tag || ''])
+  w.onAnnounce = (a) => pending.ann.push(a)
+  w.text = (x, y, text, color = '#fff', size = 16, to) => {
+    pending.txt.push([Math.round(x), Math.round(y), text, color, size, to])
   }
   phase = 'playing'
   tickCount = 0
@@ -155,7 +153,9 @@ function startGame() {
   countdownEnd = null
   for (const p of players.values()) {
     const s = p.seat
-    send(p.ws, { t: 'start', seat: s, team: s >= 0 ? seats[s].team : 0, hero: s >= 0 ? seats[s].hero : '' })
+    // seatless lobby members get no snapshots, so they stay in the lobby and wait for the next match
+    if (s < 0) send(p.ws, { t: 'busy' })
+    else send(p.ws, { t: 'start', seat: s, team: seats[s].team, hero: seats[s].hero })
   }
   console.log(`[game] started with ${heroOf.size} human player(s)`)
 }
@@ -166,16 +166,17 @@ function broadcastSnapshots() {
     const pl = players.get(pid)
     if (pl) {
       if (hero.h) hero.h.pname = pl.name
-      hero.extra.ping = pl.ping
+      hero.ping = pl.ping
     }
   }
-  const ev: Snapshot['ev'] = { sfx: pending.sfx as any, ann: pending.ann as any, txt: pending.txt as any, vfx: w.vfxQ.splice(0).map(sanitize) }
+  const ev: HostEvents = { ...pending, vfx: w.vfxQ.splice(0).map(sanitize) }
   seq++
+  const frame = new Frame()
   for (const p of players.values()) {
     const hero = heroOf.get(p.pid)
     if (!hero || p.ws.readyState !== p.ws.OPEN) continue
-    const snap = snapshotFor(w, hero.team, hero.id, seq, ev)
-    p.ws.send(JSON.stringify({ t: 'snap', s: snap }))
+    const snap = snapshotFor(w, hero.team, hero.id, seq, ev, frame)
+    p.ws.send(JSON.stringify({ t: 'snap', s: p.enc.encode(snap) }))
   }
   pending.sfx = []
   pending.ann = []
@@ -183,6 +184,7 @@ function broadcastSnapshots() {
 }
 
 function endMatchToLobby() {
+  away.clear()
   phase = 'lobby'
   world = null
   heroOf = new Map()
@@ -204,7 +206,6 @@ setInterval(() => {
     return
   }
   if (phase === 'lobby') {
-    if (countdownEnd !== null) broadcastLobby()
     acc = 0
     return
   }
@@ -276,8 +277,28 @@ function command(p: Player, m: any) {
   }
 }
 
+/** A reconnecting player takes their hero back from the bot. */
+function resume(p: Player, token: string) {
+  const a = away.get(token)
+  if (!a || phase !== 'playing' || Date.now() - a.at > RESUME_MS || !a.hero.h) return
+  away.delete(token)
+  p.name = a.name
+  p.seat = a.seat
+  p.token = token
+  if (seats[a.seat]) seats[a.seat].pid = p.pid
+  a.hero.h.isHuman = true
+  a.hero.noAuto = false // set while a bot drove the hero; a person's hero auto-attacks when idle
+  heroOf.set(p.pid, a.hero)
+  p.enc.reset()
+  send(p.ws, { t: 'start', seat: a.seat, team: a.hero.team, hero: a.hero.h.def.id, resume: 1 })
+  console.log(`[game] ${p.name} resumed`)
+}
+
 function onMessage(p: Player, m: any) {
   switch (m.t) {
+    case 'resume':
+      resume(p, String(m.token || ''))
+      return
     case 'pong':
       p.ping = Math.max(0, Date.now() - num(m.ts, Date.now()))
       return
@@ -361,7 +382,7 @@ const server = http.createServer((req, res) => {
   try {
     const url = decodeURIComponent((req.url || '/').split('?')[0])
     let file = path.normalize(path.join(DIST, url === '/' ? 'index.html' : url))
-    if (!file.startsWith(DIST)) {
+    if (!file.startsWith(DIST + path.sep)) {
       res.writeHead(403).end()
       return
     }
@@ -377,16 +398,17 @@ const server = http.createServer((req, res) => {
   }
 })
 
-const wss = new WebSocketServer({ server, path: '/ws' })
+// snapshots are repetitive JSON: deflate shrinks them about 6x for ~0.2 ms of CPU each (see bench/sim-bench.ts --snap)
+const wss = new WebSocketServer({ server, path: '/ws', perMessageDeflate: { threshold: 1024, zlibDeflateOptions: { level: 3 } } })
 wss.on('connection', (ws) => {
   if (players.size >= 14) {
     send(ws, { t: 'full' })
     ws.close()
     return
   }
-  const p: Player = { pid: nextPid++, ws, name: 'Player ' + (nextPid - 1), seat: -1, ping: 0 }
+  const p: Player = { pid: nextPid++, ws, name: 'Player ' + (nextPid - 1), seat: -1, ping: 0, token: randomBytes(12).toString('hex'), enc: new SnapshotEncoder() }
   players.set(p.pid, p)
-  send(ws, { t: 'welcome', pid: p.pid, heroes: HEROES.map((h) => h.id) })
+  send(ws, { t: 'welcome', pid: p.pid, token: p.token, heroes: HEROES.map((h) => h.id) })
   if (phase !== 'lobby') send(ws, { t: 'busy' })
   broadcastLobby()
   ws.on('message', (data) => {
@@ -402,18 +424,29 @@ wss.on('connection', (ws) => {
       freeSeat(p)
       checkCountdown()
     } else if (world) {
-      // a disconnected human is replaced by a bot
+      // a disconnected human is replaced by a bot until they resume
       const hero = heroOf.get(p.pid)
       if (hero && hero.h) {
-        hero.h.isPlayer = false
-        hero.extra.noAuto = true
+        hero.h.isHuman = false
+        hero.noAuto = true
         world.autoLevel(hero)
+        if (phase === 'playing') {
+          const now = Date.now()
+          for (const [tok, a] of away) if (now - a.at > RESUME_MS) away.delete(tok)
+          away.set(p.token, { hero, seat: p.seat, name: p.name, at: now })
+        }
       }
       heroOf.delete(p.pid)
     }
     if ((phase === 'playing' || phase === 'ended') && heroOf.size === 0) {
-      console.log('[game] all players left, ending the match')
-      endMatchToLobby()
+      // nobody left: end the match unless someone resumes within the grace period
+      const grace = phase === 'playing' && away.size ? 30000 : 0
+      setTimeout(() => {
+        if ((phase === 'playing' || phase === 'ended') && heroOf.size === 0) {
+          console.log('[game] all players left, ending the match')
+          endMatchToLobby()
+        }
+      }, grace)
       return
     }
     broadcastLobby()

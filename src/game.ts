@@ -1,8 +1,8 @@
-import { MAP, Pt, dist } from './sim/constants'
+import { MAP, Pt, STEP, dist } from './sim/constants'
 import { freePoint, routeFor } from './sim/nav'
 import type { AbilityState, Unit } from './sim/entities'
-import { World, WorldCfg } from './sim/world'
-import type { Overlay } from './render/renderer'
+import { World, WorldCfg, type WorldView, announcementText, inAudience, reaches, type Announcement } from './sim/world'
+import type { Overlay } from './render/renderer3d'
 import { Renderer3D } from './render/renderer3d'
 import { Hud } from './ui/hud'
 import { Sfx } from './audio'
@@ -17,7 +17,6 @@ type Targeting =
   | { kind: 'tp' }
   | { kind: 'amove' }
 
-const STEP = 1 / 60
 
 export class Game {
   world: World
@@ -53,23 +52,30 @@ export class Game {
     this.hud = new Hud(hudRoot, this)
     this.bind()
     this.sfx.init()
-    this.world.onEvent = (k, x, y, mine, tag) => {
+    this.world.onEvent = (k, x, y, to, tag) => {
+      if (!reaches(to, this.player)) return
+      const mine = inAudience(to, this.player)
       const c = this.renderer.cam
       const d = Math.hypot(x - c.x, y - c.y)
       const vol = mine ? 1 : Math.max(0, 1 - d / 2600)
       this.sfx.play(k, vol, tag)
     }
-    this.world.onAnnounce = (text, sub, team, epic) => this.announceLine(text, sub, team, epic)
+    this.world.onAnnounce = (a) => this.announceLine(a)
     this.sfx.startMusic()
     this.last = performance.now()
+    // back from a hidden tab: start timing afresh so the first frame does not jump
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) this.last = performance.now()
+    })
     this.raf = requestAnimationFrame(this.frame)
   }
 
-  announceLine(text: string, sub: string, team: number | undefined, epic: boolean) {
+  announceLine(a: Announcement) {
     const mine = this.player?.team ?? 0
-    const tone = epic ? 'epic' : team === undefined ? 'neutral' : team === mine ? 'good' : 'bad'
+    const text = announcementText(a, mine)
+    const tone = a.epic ? 'epic' : a.team === undefined ? 'neutral' : a.team === mine ? 'good' : 'bad'
     this.sfx.announce(text, tone)
-    this.hud.banner(text, sub, tone)
+    this.hud.banner(text, a.sub, tone)
   }
 
   /** Leave the match and return to the lobby (hero select). */
@@ -77,6 +83,11 @@ export class Game {
     cancelAnimationFrame(this.raf)
     this.net?.close()
     location.reload()
+  }
+
+  /** What presentation code (HUD) may read. */
+  get view(): WorldView {
+    return this.world
   }
 
   get player() {
@@ -203,7 +214,7 @@ export class Game {
     let bs = Infinity
     const under = this.renderer.toWorld(mx, my) // ground point under the cursor: a clicked unit must be near it
     for (const u of w.units) {
-      if (u.dead || u.kind === 'fountain' || u.kind === 'courier' || u.extra.stub) continue
+      if (u.dead || u.kind === 'fountain' || u.kind === 'courier' || u.stub) continue
       if (Math.abs(u.x - under.x) > 900 || Math.abs(u.y - under.y) > 1100) continue
       if (!w.isVisible(me.team, u)) continue
       if (filter && !filter(u)) continue
@@ -235,23 +246,15 @@ export class Game {
     if (t && t.kind === 'ability') {
       const def = t.st.def
       const range = this.world.castRange(p, t.st)
+      const aim = def.aim
       if (range > 0) ov.rangeCircle = { r: range, color: 'rgba(255,255,255,0.55)' }
-      else if (def.id === 'mirana_starstorm') ov.rangeCircle = { r: 675, color: 'rgba(122,168,255,0.7)' }
-      if (def.id === 'pudge_hook' || def.id === 'mirana_arrow') {
+      else if (aim?.circle) ov.rangeCircle = aim.circle
+      if (aim?.line) {
         const a = Math.atan2(this.mouse.y - p.y, this.mouse.x - p.x)
-        const len = def.id === 'pudge_hook' ? 1300 : 3000
-        ov.line = {
-          from: { x: p.x, y: p.y }, to: { x: p.x + Math.cos(a) * len, y: p.y + Math.sin(a) * len },
-          width: def.id === 'pudge_hook' ? 180 : 190, color: 'rgba(255,255,255,0.18)',
-        }
+        const { len, width, color = 'rgba(255,255,255,0.18)' } = aim.line
+        ov.line = { from: { x: p.x, y: p.y }, to: { x: p.x + Math.cos(a) * len, y: p.y + Math.sin(a) * len }, width, color }
       }
-      if (def.id === 'sniper_shrapnel') {
-        ov.aoe = { x: this.mouse.x, y: this.mouse.y, r: [400, 425, 450, 475][t.st.level - 1], color: 'rgba(230,190,90,0.8)' }
-      }
-      if (def.id === 'mirana_leap') {
-        const a = Math.atan2(this.mouse.y - p.y, this.mouse.x - p.x)
-        ov.line = { from: { x: p.x, y: p.y }, to: { x: p.x + Math.cos(a) * 575, y: p.y + Math.sin(a) * 575 }, width: 80, color: 'rgba(90,208,192,0.25)' }
-      }
+      if (aim?.aoe) ov.aoe = { x: this.mouse.x, y: this.mouse.y, r: aim.aoe.r[Math.max(0, t.st.level - 1)], color: aim.aoe.color }
     } else if (t && t.kind === 'item') {
       const it = p.h!.items[t.slot]
       if (it && it.def.active === 'ward') {
@@ -259,19 +262,10 @@ export class Game {
         ov.aoe = { x: this.mouse.x, y: this.mouse.y, r: 1600, color: 'rgba(255,233,168,0.7)' }
       } else ov.rangeCircle = { r: 1200, color: 'rgba(122,184,255,0.5)' }
     } else if (t && t.kind === 'tp') {
-      let b: Unit | null = null
-      let bd = 420
-      for (const o of this.world.units) {
-        if (o.dead || o.team !== p.team || (o.kind !== 'tower' && o.kind !== 'ancient')) continue
-        const dd = Math.hypot(o.x - this.mouse.x, o.y - this.mouse.y)
-        if (dd < bd) {
-          bd = dd
-          b = o
-        }
-      }
+      const b = this.world.nearestTpPoint(p.team, this.mouse.x, this.mouse.y)
       if (b) ov.aoe = { x: b.x, y: b.y, r: 260, color: 'rgba(111,214,255,0.9)' }
     } else if (t && t.kind === 'tk') {
-      const tk = p.extra.tk
+      const tk = p.tk
       if (tk) ov.aoe = { x: tk.start.x, y: tk.start.y, r: 375, color: 'rgba(90,176,232,0.8)' }
     }
     return ov
@@ -352,7 +346,6 @@ export class Game {
     }
     this.keys.add(e.code)
     const p = this.player
-    const w = this.world
     const abilityKeys = ['KeyQ', 'KeyW', 'KeyE', 'KeyR', 'KeyD', 'KeyF']
     const itemKeys = ['KeyZ', 'KeyX', 'KeyC', 'KeyV', 'KeyB', 'KeyN']
     const ai = abilityKeys.indexOf(e.code)
@@ -405,8 +398,7 @@ export class Game {
         this.renderer.cam = { x: p.x, y: p.y }
         break
       case 'KeyL':
-        this.camLocked = !this.camLocked
-        this.hud.toast(this.camLocked ? 'Camera locked to hero' : 'Camera free — edge scroll / arrows')
+        this.toggleCamLock()
         break
       case 'KeyS':
       case 'F4':
@@ -414,13 +406,10 @@ export class Game {
         this.hud.toggleShop()
         break
       case 'KeyP':
-        if (this.net) break
-        this.paused = !this.paused
-        this.hud.setPaused(this.paused)
+        this.togglePause()
         break
       case 'KeyM':
-        this.quickCast = !this.quickCast
-        this.hud.toast(this.quickCast ? 'Quick cast ON — abilities fire at the cursor' : 'Quick cast OFF — press, then click a target')
+        this.toggleQuickCast()
         break
       case 'Escape':
         if (this.hud.quitOpen) this.hud.closeQuit()
@@ -432,8 +421,6 @@ export class Game {
   }
 
   private leftClick() {
-    const p = this.player
-    const w = this.world
     const t = this.targeting
     if (t) {
       if (t.kind === 'amove') {
@@ -486,8 +473,23 @@ export class Game {
     this.moveGoal = { x: this.mouse.x, y: this.mouse.y }
   }
 
+  /** Pause (single player only); shared by the P key and the menu button. */
+  togglePause() {
+    if (this.net) return
+    this.paused = !this.paused
+    this.hud.setPaused(this.paused)
+  }
+  toggleQuickCast() {
+    this.quickCast = !this.quickCast
+    this.hud.toast(this.quickCast ? 'Quick cast ON — abilities fire at the cursor' : 'Quick cast OFF — press, then click a target')
+  }
+  toggleCamLock() {
+    this.camLocked = !this.camLocked
+    this.hud.toast(this.camLocked ? 'Camera locked to hero' : 'Camera free — edge scroll / arrows')
+  }
+
   marker(p: Pt, color: string) {
-    this.world.fx({ k: 'ring', x: p.x, y: p.y, r0: 46, r1: 10, dur: 0.35, color, width: 5 })
+    this.world.vfx('ring', { x: p.x, y: p.y, r0: 46, r1: 10, dur: 0.35, color })
   }
 
   /** Clicking a hero portrait in the top bar: jump the camera to them, but only if they are visible (no free scouting). */
@@ -497,7 +499,7 @@ export class Game {
       this.camLocked = true
       return
     }
-    if (u.dead || u.extra.stub || !this.world.isVisible(me.team, u)) {
+    if (u.dead || u.stub || !this.world.isVisible(me.team, u)) {
       this.hud.toast(u.dead ? 'That hero is dead' : 'Not visible right now')
       return
     }
@@ -513,7 +515,7 @@ export class Game {
     if (p.dead) return
     const hs = p.h!
     if (this.targeting?.kind === 'tp') {
-      const anc = w.units.find((a) => a.kind === 'ancient' && a.team === p.team)
+      const anc = w.ancientOf(p.team)
       const err = anc ? this.api.tpAt(anc.x, anc.y) : null
       if (err) this.hud.toast(err)
       this.targeting = null
@@ -584,8 +586,8 @@ export class Game {
       this.hud.toast('Ability not learned')
       return
     }
-    // Telekinesis landing
-    if (def.id === 'rubick_tk' && p.extra.tk && w.time < p.extra.tk.end) {
+    // follow-up stage (Telekinesis landing)
+    if (def.followUp?.(p, w.time)) {
       if (this.quickCast && !fromClick) this.api.tkLand(this.mouse.x, this.mouse.y)
       else this.targeting = { kind: 'tk' }
       return
@@ -623,8 +625,6 @@ export class Game {
 
   /** Try to cast `st` using the current cursor. Returns true if an order was issued. */
   private castAt(st: AbilityState, toast: boolean) {
-    const p = this.player
-    const w = this.world
     const def = st.def
     let err: string | null = null
     if (def.behavior === 'unit') {

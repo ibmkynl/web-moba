@@ -1,18 +1,13 @@
 import { AbilityDef, AbilityState, Unit } from './entities'
-import type { World } from './world'
 import { dist } from './constants'
 
-const L = (arr: number[], l: number) => arr[Math.max(0, Math.min(arr.length, l) - 1)]
-const ang = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.atan2(b.y - a.y, b.x - a.x)
-const same = (n: number, x: number) => [x, x, x, x].slice(0, n)
-
-/** Hero targets (visible, hittable) near caster. */
-const heroesNear = (w: World, c: Unit, r: number) => w.enemyHeroesNear(c, r)
+import { L, ang, same, heroesNear } from './abkit'
 
 /* ------------------------------------------------------------------ PUDGE */
 
 export const MEAT_HOOK: AbilityDef = {
   id: 'pudge_hook', name: 'Meat Hook', glyph: '⚓', color: '#b83a3a',
+  aim: { line: { len: 1300, width: 180 } },
   behavior: 'point', range: same(4, 1300), castPoint: 0.3, cd: [18, 16, 14, 12], mana: same(4, 110), maxLevel: 4,
   desc: 'Launches a bloody hook toward a location. It snags the first enemy unit in its path and drags it back to Pudge. Enemy heroes take damage; non-ancient creeps are killed outright.',
   info: (l) => [`Damage: ${L([150, 220, 290, 360], l)}`, 'Range: 1300', 'Hook radius: 100'],
@@ -56,6 +51,7 @@ export const MEAT_HOOK: AbilityDef = {
 
 export const ROT: AbilityDef = {
   id: 'pudge_rot', name: 'Rot', glyph: '☣', color: '#7ab83a',
+  toggleArea: { r: 250, fill: 'rgba(120,190,50,0.2)', stroke: 'rgba(150,220,70,0.7)' },
   behavior: 'toggle', castPoint: 0, cd: same(4, 0), mana: same(4, 0), maxLevel: 4,
   desc: 'A toxic cloud that deals heavy damage per second and slows enemies around Pudge. Pudge takes damage from his own Rot.',
   info: (l) => [`Damage per second: ${L([30, 60, 90, 120], l)}`, 'Radius: 250', `Slow: ${Math.round(L([0.14, 0.2, 0.26, 0.32], l) * 100)}%`],
@@ -156,6 +152,7 @@ export const DISMEMBER: AbilityDef = {
 
 export const SHRAPNEL: AbilityDef = {
   id: 'sniper_shrapnel', name: 'Shrapnel', glyph: '✹', color: '#c8a050',
+  aim: { aoe: { r: [400, 425, 450, 475], color: 'rgba(230,190,90,0.8)' } },
   behavior: 'point', range: same(4, 1800), castPoint: 0.3, cd: same(4, 0.6), mana: same(4, 75), maxLevel: 4,
   charges: { max: 3, restore: same(4, 35) },
   desc: 'Consumes a charge to shower a target area with pellets after a short delay. Enemies in the area take damage over time and are slowed. Reveals the area. Charges restore over time.',
@@ -197,8 +194,7 @@ export const HEADSHOT: AbilityDef = {
     if (Math.random() >= chance) return 0
     w.addBuff(t, { id: 'headshot', expires: w.time + 0.5, slow: 1, as: -100, color: '#d86a3a', label: 'Headshot' })
     const d = Math.atan2(t.y - a.y, t.x - a.x)
-    t.x += Math.cos(d) * 10
-    t.y += Math.sin(d) * 10
+    w.displace(t, t.x + Math.cos(d) * 10, t.y + Math.sin(d) * 10)
     w.text(t.x, t.y - 70, 'HEADSHOT!', '#ffb347')
     w.vfx('sniper_muzzle', { x: a.x, y: a.y, angle: d })
     w.vfx('sniper_headshot', { x: t.x, y: t.y, angle: d })
@@ -227,6 +223,11 @@ export const TAKE_AIM: AbilityDef = {
 
 export const ASSASSINATE: AbilityDef = {
   id: 'sniper_assassinate', name: 'Assassinate', glyph: '✜', color: '#d84a3a',
+  onKill: (_w, _k, _v, st) => {
+    st.cdUntil = 0
+  },
+  castSlack: 600,
+  aimBeam: true,
   behavior: 'unit', target: 'enemy', range: same(3, 3000), castPoint: 2.0, cd: [20, 15, 10], mana: same(3, 175), maxLevel: 3, ult: true,
   desc: 'Sniper locks onto an enemy unit and, after a long aiming time, fires a devastating shot that deals his attack damage plus bonus damage and mini-stuns the target. Refreshes when Sniper kills an enemy hero.',
   info: (l) => [`Bonus damage: ${L([300, 400, 500], l)}`, 'Aiming time: 2s', 'Range: 3000'],
@@ -257,6 +258,7 @@ export const ASSASSINATE: AbilityDef = {
 
 export const STARSTORM: AbilityDef = {
   id: 'mirana_starstorm', name: 'Starstorm', glyph: '★', color: '#7aa8ff',
+  aim: { circle: { r: 675, color: 'rgba(122,168,255,0.7)' } },
   behavior: 'none', castPoint: 0.4, cd: same(4, 12), mana: [80, 90, 100, 110], maxLevel: 4,
   desc: 'Calls down a wave of meteors on all nearby enemy units. The closest enemy to Mirana is struck a second time.',
   info: (l) => [`Damage: ${L([75, 150, 225, 300], l)}`, 'Radius: 675', 'Second strike: 75% to the nearest enemy'],
@@ -286,6 +288,7 @@ export const STARSTORM: AbilityDef = {
 
 export const SACRED_ARROW: AbilityDef = {
   id: 'mirana_arrow', name: 'Sacred Arrow', glyph: '➳', color: '#e8d870',
+  aim: { line: { len: 3000, width: 190 } },
   behavior: 'point', range: same(4, 3000), castPoint: 0.5, cd: [19, 18, 17, 16], mana: same(4, 90), maxLevel: 4,
   desc: 'Fires a long-range arrow that stuns and damages the first enemy unit it strikes. Stun duration and damage grow with the distance the arrow has travelled. Instantly kills the first non-ancient creep it hits.',
   info: (l) => [
@@ -328,6 +331,7 @@ export const SACRED_ARROW: AbilityDef = {
 
 export const LEAP: AbilityDef = {
   id: 'mirana_leap', name: 'Leap', glyph: '⤴', color: '#5ad0c0',
+  aim: { line: { len: 575, width: 80, color: 'rgba(90,208,192,0.25)' } },
   behavior: 'point', noMove: true, castPoint: 0, cd: same(4, 0.5), mana: same(4, 40), maxLevel: 4,
   charges: { max: 3, restore: [52, 44, 36, 28] },
   desc: 'Mirana leaps forward and gains bonus movement and attack speed. Holds multiple charges that recharge over time.',
@@ -444,6 +448,15 @@ export const COUNTER_HELIX: AbilityDef = {
 
 export const CULLING_BLADE: AbilityDef = {
   id: 'axe_culling', name: 'Culling Blade', glyph: '✂', color: '#e8e8e8',
+  onKill: (w, k, _v, st) => {
+    st.cdUntil = 0
+    st.extra.stacks = (st.extra.stacks || 0) + 1
+    for (const h of w.heroes) {
+      if (h.team === k.team && !h.dead && dist(h, k) < 900) {
+        w.addBuff(h, { id: 'culling_haste', expires: w.time + 6, haste: 0.12, armor: 3, color: '#e8e8e8', label: 'Culling Blade' })
+      }
+    }
+  },
   behavior: 'unit', target: 'enemy', range: same(3, 175), castPoint: 0.3, cd: [75, 65, 55], mana: same(3, 60), maxLevel: 3, ult: true,
   desc: 'Axe spots a weakness and strikes, instantly killing an enemy below a health threshold or otherwise dealing damage. Killing a hero resets the cooldown, grants Axe permanent armor and speeds up nearby allies.',
   info: (l) => [`Kill threshold: ${L([250, 350, 450], l)} HP`, `Damage otherwise: ${L([150, 250, 350], l)}`, 'Armor per kill: +1', 'Allies in 900: +12% move speed, +3 armor for 6s'],
@@ -471,6 +484,7 @@ export const CULLING_BLADE: AbilityDef = {
 
 export const TELEKINESIS: AbilityDef = {
   id: 'rubick_tk', name: 'Telekinesis', glyph: '☝', color: '#5ab0e8',
+  followUp: (c, now) => !!c.tk && now < c.tk.end,
   behavior: 'unit', target: 'enemy', range: [550, 575, 600, 625], castPoint: 0.1, cd: [24, 21, 18, 15], mana: same(4, 110), maxLevel: 4,
   desc: 'Lifts an enemy into the air and hurls it back to the ground, stunning and damaging everything nearby. Cast the ability again while the target is airborne to choose where it lands.',
   info: (l) => [
@@ -482,17 +496,17 @@ export const TELEKINESIS: AbilityDef = {
     const stunR = L([300, 325, 350, 375], l)
     const stunD = L([0.9, 1.1, 1.3, 1.5], l)
     w.interrupt(tg, true)
-    tg.extra.liftStart = w.time
-    tg.extra.liftEnd = w.time + lift
+    tg.liftStart = w.time
+    tg.liftEnd = w.time + lift
     w.addBuff(tg, { id: 'tk', lift: true, stun: true, expires: w.time + lift + 0.4, color: '#5ab0e8', label: 'Telekinesis' })
     w.vfx('rubick_tk_lift', { x: tg.x, y: tg.y, unit: c, unit2: tg, dur: lift })
     const tk = { target: tg, start: { x: tg.x, y: tg.y }, land: { x: tg.x, y: tg.y }, end: w.time + lift }
-    c.extra.tk = tk
+    c.tk = tk
     w.after(lift, () => {
       const finish = () => {
         w.removeBuff(tg, 'tk')
-        tg.extra.liftStart = 0
-        if (c.extra.tk === tk) c.extra.tk = null
+        tg.liftStart = 0
+        if (c.tk === tk) c.tk = null
         w.vfx('rubick_tk_land', { x: tg.x, y: tg.y, r: stunR })
         for (const e of w.enemiesIn(c.team, tg.x, tg.y, stunR)) {
           w.interrupt(e, true)
@@ -504,7 +518,7 @@ export const TELEKINESIS: AbilityDef = {
         }
       }
       if (tg.dead) {
-        if (c.extra.tk === tk) c.extra.tk = null
+        if (c.tk === tk) c.tk = null
         return
       }
       const d = dist(tg, tk.land)

@@ -138,7 +138,6 @@ function buildDireRanged(b: Builder, body: THREE.Group, weapon: THREE.Group, r: 
   const bone = b.m('#d8cdb0')
   const robe = b.m('#4a1620')
   const dark = b.m('#20101a')
-  const skin = b.m('#7a8a60')
   const wood = b.m('#3a2418')
   const ember = glow(b, '#ff5a40', '#ff1a10', 1.8)
   // tattered robe with ragged hem

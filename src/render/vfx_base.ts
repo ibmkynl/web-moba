@@ -358,8 +358,6 @@ export const VFX_BASE: Record<string, CustomVfx> = {
     }
   },
   mirana_leap: (v, e) => {
-    const a = Math.atan2((e.y2 ?? e.y) - e.y, (e.x2 ?? e.x) - e.x)
-    const { cx, cz } = dirOf(a)
     const dust = (x: number, y: number) => {
       v.emit({ pos: P(x, y, 10), kind: 'smoke', add: false, color: '#b8ab92', color2: '#8a7e68', alpha: 0.5, burst: 8, shape: 'donut', radius: 50, speed: [40, 110], size: [50, 90], life: [0.5, 0.9], sizeEnd: 1.6, force: [0, 20, 0], max: 12 })
     }
@@ -375,8 +373,6 @@ export const VFX_BASE: Record<string, CustomVfx> = {
         v.emit({ pos: P(e.x + dx * k, e.y + dy * k, 60 + Math.sin(k * Math.PI) * 60), kind: 'spark', color: '#e8fff8', color2: '#5ad0c0', burst: 5, shape: 'sphere', radius: 14, speed: [4, 30], size: [14, 26], life: [0.4, 0.8], max: 10 }),
       )
     }
-    void cx
-    void cz
     later(v, 0.35, () => {
       dust(e.x2 ?? e.x, e.y2 ?? e.y)
       v.ring(P(e.x2 ?? e.x, e.y2 ?? e.y, 0), 20, 130, 0.45, '#5ad0c0')

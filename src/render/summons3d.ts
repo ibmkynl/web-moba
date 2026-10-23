@@ -16,6 +16,5 @@ export function buildSummon(sub: string, team: number, r: number, color: string)
   orb.castShadow = false
   b.mesh(cone(r * 0.18, r * 0.6, 5), stone, r * 0.5, r * 2.2, 0, g).rotation.z = -1.2
   b.mesh(cone(r * 0.18, r * 0.6, 5), stone, -r * 0.5, r * 2.2, 0, g).rotation.z = 1.2
-  void sub
   return { group: g, spin: orb, height: r * 3, mats: b.mats }
 }

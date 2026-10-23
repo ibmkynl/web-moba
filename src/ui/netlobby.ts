@@ -1,8 +1,9 @@
 import { HEROES } from '../sim/heroes'
+import { LANE_NAME, type Lane } from '../sim/constants'
 import type { NetClient } from '../net/client'
 import { portraitStyle } from './hud'
+import { esc } from './html'
 
-const LANE: Record<string, string> = { top: 'Top', mid: 'Mid', bot: 'Bottom' }
 const ATTRS = [
   { id: 'str', name: 'Strength', cls: 'str' },
   { id: 'agi', name: 'Agility', cls: 'agi' },
@@ -27,7 +28,7 @@ export function showTitle(root: HTMLElement, onSingle: () => void, onMulti: () =
     note.textContent = 'Connecting…'
     const err = await onMulti()
     if (err) {
-      note.innerHTML = `<b class="bad">${err}</b><br/>Ask the host to run <code>npm run host</code> and open the link they share (like http://192.168.x.x:8080).`
+      note.innerHTML = `<b class="bad">${esc(err)}</b><br/>Ask the host to run <code>npm run host</code> and open the link they share (like http://192.168.x.x:8080).`
     }
   })
 }
@@ -60,8 +61,8 @@ export function showNetLobby(root: HTMLElement, client: NetClient, onLeave: () =
     const other = s.kind === 'human' && !mine
     return `<div class="${cls}" data-seat="${s.seat}" ${other ? 'data-locked="1"' : ''}>
       <div class="np" style="${def ? portraitStyle(def) : ''}">${def ? '' : '<span>?</span>'}${mine ? '<i class="ybadge">YOU</i>' : ''}${s.ready ? '<i class="rbadge">✓</i>' : ''}</div>
-      <div class="nt"><b>${s.kind === 'human' ? s.name : 'Bot'}</b><small>${def ? def.name : s.kind === 'human' ? 'Picking…' : ''}</small></div>
-      <div class="nl ln-${s.lane}">${LANE[s.lane] || ''}</div>
+      <div class="nt"><b>${s.kind === 'human' ? esc(s.name) : 'Bot'}</b><small>${def ? def.name : s.kind === 'human' ? 'Picking…' : ''}</small></div>
+      <div class="nl ln-${s.lane}">${LANE_NAME[s.lane as Lane] || ''}</div>
       ${s.kind === 'bot' ? '<em class="take">Take seat</em>' : ''}
     </div>`
   }
@@ -89,16 +90,16 @@ export function showNetLobby(root: HTMLElement, client: NetClient, onLeave: () =
         <div class="tiles">${list
           .map((h) => {
             const owner = mySeat ? seats.find((x) => x.seat !== mySeat.seat && x.hero === h.id) : undefined
-            const takenBy = owner ? (owner.kind === 'human' ? owner.name : 'a bot') : ''
+            const takenBy = owner ? (owner.kind === 'human' ? esc(owner.name) : 'a bot') : ''
             return `<div class="tile ${mySeat && mySeat.hero === h.id ? 'on' : ''} ${owner && owner.kind === 'human' ? 'taken' : ''}" data-hero="${h.id}" ${owner && owner.kind === 'human' ? 'data-taken="1"' : ''} title="${owner ? 'Picked by ' + takenBy : ''}" style="${portraitStyle(h)}"><span class="tn">${h.name}</span><i class="tcheck">✓</i>${owner && owner.kind === 'human' ? `<em class="tk">${takenBy}</em>` : ''}</div>`
           })
           .join('')}</div></div>`
     }).join('')
-    const people = (state.people as any[]).map((p) => `<span class="${p.pid === me ? 'me' : ''}">${p.name}${p.seat >= 0 ? '' : ' <small>(no seat)</small>'}</span>`).join('')
+    const people = (state.people as any[]).map((p) => `<span class="${p.pid === me ? 'me' : ''}">${esc(p.name)}${p.seat >= 0 ? '' : ' <small>(no seat)</small>'}</span>`).join('')
     root.innerHTML = `
       <div class="nl-head">
         <h2>Game Lobby</h2>
-        <div class="nl-name">Your name <input id="nm" maxlength="16" value="${(state.people.find((p: any) => p.pid === me)?.name || savedName).replace(/"/g, '')}"/></div>
+        <div class="nl-name">Your name <input id="nm" maxlength="16" value="${esc(state.people.find((p: any) => p.pid === me)?.name || savedName)}"/></div>
         <button id="nl-leave" class="mini">Leave</button>
       </div>
       <div class="nl-hint">${busy ? '<b>A match is in progress.</b> You can take a seat when it ends.' : mySeat ? 'Pick a hero (each hero can be used once per team), choose your lane, then press <b>Ready</b>. The match starts 5 seconds after everyone is ready.' : 'Click a seat on <b>Radiant</b> or <b>Dire</b> to join. Taking a seat removes that bot.'}</div>
@@ -112,7 +113,7 @@ export function showNetLobby(root: HTMLElement, client: NetClient, onLeave: () =
           ? `<div class="nl-pick">
               <div class="board">${tiles}</div>
               <div class="nl-ctrl">
-                <div class="nl-lanes">${['top', 'mid', 'bot'].map((l) => `<button data-lane="${l}" class="${mySeat.lane === l ? 'on' : ''}">${LANE[l]}</button>`).join('')}</div>
+                <div class="nl-lanes">${['top', 'mid', 'bot'].map((l) => `<button data-lane="${l}" class="${mySeat.lane === l ? 'on' : ''}">${LANE_NAME[l as Lane]}</button>`).join('')}</div>
                 <button id="nl-ready" class="start ${mySeat.ready ? 'on' : ''}" ${mySeat.hero ? '' : 'disabled'}>${mySeat.ready ? 'READY ✓ (click to cancel)' : mySeat.hero ? 'READY' : 'PICK A HERO'}</button>
                 <button id="nl-stand" class="mini">Stand up</button>
               </div>

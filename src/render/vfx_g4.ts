@@ -1,81 +1,11 @@
 import * as THREE from 'three'
 import type { CustomVfx, Vfx } from './vfx'
+import { ADD, P, PI, type V3, anim, clamp, easeOut, easeOutBack, later, mkTex, rnd, unitP } from './vfxkit'
 
 /**
  * Hero-specific visual effects (g4): Earthshaker, Tidehunter, Dragon Knight, Drow Ranger, Phantom Assassin, Bounty Hunter,
  * Lina, Lion, Zeus. Key = effect name used with `w.vfx(name, opts)`. Game (x, y) -> three (x, height, y).
  */
-
-type PosOf = ((u: { x: number; y: number }) => THREE.Vector3 | null | undefined) | undefined
-type V3 = THREE.Vector3
-type Pt = { x: number; y: number }
-
-const PI = Math.PI
-const ADD = THREE.AdditiveBlending
-const P = (x: number, y: number, h = 0) => new THREE.Vector3(x, h, y)
-const clamp = (x: number, a = 0, b = 1) => Math.max(a, Math.min(b, x))
-const easeOut = (k: number) => 1 - (1 - k) * (1 - k)
-const easeOutBack = (k: number) => {
-  const c1 = 1.70158
-  const c3 = c1 + 1
-  return 1 + c3 * Math.pow(k - 1, 3) + c1 * Math.pow(k - 1, 2)
-}
-const rnd = (a: number, b: number) => a + Math.random() * (b - a)
-
-function disposeObj(o: THREE.Object3D) {
-  o.traverse((c) => {
-    const m = c as THREE.Mesh
-    m.geometry?.dispose()
-    const mt = m.material as THREE.Material | THREE.Material[] | undefined
-    if (Array.isArray(mt)) mt.forEach((x) => x.dispose())
-    else mt?.dispose?.()
-  })
-}
-
-/** Add an object to the scene for `dur` seconds; `step(k, dt, t)` animates it (return false to end early). */
-function anim(v: Vfx, obj: THREE.Object3D, dur: number, step: (k: number, dt: number, t: number) => boolean | void) {
-  v.scene.add(obj)
-  let t = 0
-  let done = false
-  const end = () => {
-    if (done) return
-    done = true
-    v.scene.remove(obj)
-    disposeObj(obj)
-  }
-  v.live.push({
-    update: (dt: number) => {
-      t += dt
-      const k = t / dur
-      if (k >= 1) {
-        end()
-        return false
-      }
-      if (step(k, dt, t) === false) {
-        end()
-        return false
-      }
-      return true
-    },
-    dispose: end,
-  })
-}
-
-/** Run `fn` after `sec` seconds of effect time. */
-function later(v: Vfx, sec: number, fn: () => void) {
-  let t = 0
-  v.live.push({
-    update: (dt: number) => {
-      t += dt
-      if (t >= sec) {
-        fn()
-        return false
-      }
-      return true
-    },
-    dispose: () => {},
-  })
-}
 
 /** Wall-clock seconds since this helper was created (for follow callbacks, which get no dt). */
 const clock = () => {
@@ -83,24 +13,9 @@ const clock = () => {
   return () => (performance.now() - t0) / 1000
 }
 
-const unitP = (posOf: PosOf, u: Pt | undefined, fb: V3): V3 => (u && posOf?.(u)) || fb
 const dirOf = (a: number) => new THREE.Vector3(Math.cos(a), 0, Math.sin(a))
 
 /* ------------------------------------------------------------------ textures */
-
-const texCache: Record<string, THREE.CanvasTexture> = {}
-function mkTex(key: string, draw: (g: CanvasRenderingContext2D, s: number) => void, s = 256) {
-  let t = texCache[key]
-  if (!t) {
-    const c = document.createElement('canvas')
-    c.width = c.height = s
-    draw(c.getContext('2d')!, s)
-    t = new THREE.CanvasTexture(c)
-    t.colorSpace = THREE.SRGBColorSpace
-    texCache[key] = t
-  }
-  return t
-}
 
 const texDisc = () =>
   mkTex('g4disc', (g, s) => {
@@ -380,7 +295,6 @@ export const VFX_G4: Record<string, CustomVfx> = {
       grp.position.set(q.x, 45 + Math.sin(t * 3) * 6, q.z)
       grp.rotation.y = t * 2.2
       mat.opacity = 0.55 + Math.sin(t * 6) * 0.2
-      void k
     })
   },
 
@@ -796,7 +710,6 @@ export const VFX_G4: Record<string, CustomVfx> = {
   pa_strike: (v, e, posOf) => {
     const a = P(e.x, e.y, 70)
     const b = P(e.x2!, e.y2!, 70)
-    const u = e.unit as any
     v.beam(() => a, () => b, 0.35, '#7a5ad8', 22)
     v.beam(() => a, () => b, 0.2, '#ffffff', 6)
     for (const [p, big] of [[a, true], [b, false]] as [V3, boolean][]) {
@@ -817,8 +730,6 @@ export const VFX_G4: Record<string, CustomVfx> = {
       ;(ghost.material as THREE.MeshBasicMaterial).opacity = 0.5 * (1 - k)
       ghost.scale.set(1 - k * 0.4, 1 + k * 0.1, 1 - k * 0.4)
     })
-    void u
-    void posOf
   },
 
   // Coup de Grace: blood-red X slash, shock flash, vertical pillar
@@ -942,7 +853,6 @@ export const VFX_G4: Record<string, CustomVfx> = {
       rg.position.set(q.x, 4, q.z)
       const s = 70 + Math.sin(t * 3) * 6
       rg.scale.set(s, 1, s)
-      void k
     })
   },
 

@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "host": "vite build && tsx server/index.ts",
-    "server": "tsx server/index.ts"
+    "server": "tsx server/index.ts",
+    "bench:sim": "tsx bench/sim-bench.ts 20 --phases --snap"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

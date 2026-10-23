@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import type { CustomVfx, Vfx } from './vfx'
+import { PI, P, rnd, later } from './vfxkit'
 
 /**
  * Hero-specific visual effects (g1: Sven, Juggernaut, Legion Commander).
@@ -7,9 +8,6 @@ import type { CustomVfx, Vfx } from './vfx'
  */
 
 type PosOf = ((u: { x: number; y: number }) => THREE.Vector3 | null) | undefined
-const PI = Math.PI
-const P = (x: number, y: number, h = 0) => new THREE.Vector3(x, h, y)
-const rnd = (a: number, b: number) => a + Math.random() * (b - a)
 
 const basic = (color: string, opacity = 1, add = true) =>
   new THREE.MeshBasicMaterial({
@@ -71,20 +69,6 @@ function until(v: Vfx, obj: THREE.Object3D | null, step: (t: number, dt: number)
   })
 }
 
-function later(v: Vfx, delay: number, fn: () => void) {
-  let t = 0
-  v.live.push({
-    update: (dt) => {
-      t += dt
-      if (t >= delay) {
-        fn()
-        return false
-      }
-      return true
-    },
-    dispose: () => {},
-  })
-}
 
 const unitPos = (posOf: PosOf, u: { x: number; y: number }, h = 70) => (posOf ? posOf(u) : null) ?? P(u.x, u.y, h)
 
@@ -517,7 +501,6 @@ export const VFX_G1: Record<string, CustomVfx> = {
       }
       return true
     })
-    void posOf
   },
   jugg_ward_pulse: (v, e) => {
     const p = P(e.x, e.y)
@@ -651,7 +634,6 @@ export const VFX_G1: Record<string, CustomVfx> = {
       const f = k > 0.8 ? 1 - (k - 0.8) / 0.2 : 1
       for (const m of [shaft, head, gold]) (m.material as THREE.MeshBasicMaterial).opacity = f
       ;(glow.material as THREE.MeshBasicMaterial).opacity = 0.4 * f * (kk < 1 ? 1 : 0.3)
-      void dt
     })
   },
 

@@ -1,5 +1,5 @@
 import {
-  BASE_POS, BOUNTY_RUNES, CAMPS, FOUNTAIN_POS, Lane, LANES, MAP, MAX_LEVEL, PATHS, POWER_RUNES, Pt, T3_POS, T4_POS, TOWER_ARCS, Team, XP_TABLE, clamp, dist, mirror, pushOutOfWalls,
+  BASE_POS, BOUNTY_RUNES, CAMPS, FOUNTAIN_POS, Lane, LANES, MAP, MAX_LEVEL, PATHS, POWER_RUNES, Pt, T3_POS, T4_POS, TOWER_ARCS, Team, XP_TABLE, LANE_SLOTS, NEUTRAL, isNeutral, clamp, dist, mirror, pushOutOfWalls, shuffle,
 } from './constants'
 import {
   AbilityState, Buff, CastTarget, DmgType, HeroDef, HeroState, ItemState, Order, Stats, Unit,
@@ -12,23 +12,51 @@ import { freePoint, navWaypoint } from './nav'
 import { pushOutOfSolids } from './obstacles'
 import { TeamBrain } from './team'
 
+/** Floating combat text (3D effects go through World.vfx instead). */
 export interface Fx {
-  k: 'ring' | 'text' | 'line' | 'meteor' | 'flash'
-  x?: number
-  y?: number
-  r0?: number
-  r1?: number
-  x1?: number
-  y1?: number
-  x2?: number
-  y2?: number
-  text?: string
-  color?: string
-  width?: number
-  size?: number
+  k: 'text'
+  x: number
+  y: number
+  text: string
+  color: string
+  size: number
   t0: number
   dur: number
+  /** floating text only: who may see it (everyone when absent) */
+  to?: Audience
 }
+
+/** Who an event or popup concerns. `only` = nobody else gets it; otherwise everyone does and the audience hears it up close. */
+export interface Audience {
+  hero?: number
+  team?: Team
+  all?: boolean
+  only?: boolean
+}
+/** True when `viewer` (the hero a client plays) belongs to the audience. */
+export const inAudience = (a: Audience | undefined, viewer: Unit | undefined) =>
+  !!a && (!!a.all || (!!viewer && (a.hero === viewer.id || a.team === viewer.team)))
+/** True when `viewer` should receive the event or popup at all. */
+export const reaches = (a: Audience | undefined, viewer: Unit | undefined) => !a || !a.only || inAudience(a, viewer)
+
+/** Announcements whose wording depends on which side the viewer is on: [about the viewer's team, about the enemy]. */
+const ANN_TEXT = {
+  ancient_hit: ['Your ancient is under attack!', 'Enemy ancient under attack'],
+  tower_down: ['Your tower has fallen', 'Enemy tower destroyed'],
+  ancient_down: ['Defeat', 'Victory!'],
+  mega: ['Mega creeps are coming!', 'Enemy mega creeps incoming'],
+} as const
+export type AnnKind = keyof typeof ANN_TEXT
+/** An announcer line. `team` = the side the news is good for (tone); `kind` + `about` make the text viewer-relative. */
+export interface Announcement {
+  text: string
+  sub: string
+  team?: number
+  epic: boolean
+  kind?: AnnKind
+  about?: Team
+}
+export const announcementText = (a: Announcement, viewerTeam: number) => (a.kind ? ANN_TEXT[a.kind][a.about === viewerTeam ? 0 : 1] : a.text)
 
 export interface Zone {
   x: number
@@ -107,16 +135,6 @@ export interface Pick {
   human?: boolean
 }
 
-/** Fair (Fisher-Yates) shuffle. */
-function fyShuffle<T>(a: T[]): T[] {
-  const r = [...a]
-  for (let i = r.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[r[i], r[j]] = [r[j], r[i]]
-  }
-  return r
-}
-
 export interface WorldCfg {
   playerHero: string
   playerLane: Lane
@@ -124,10 +142,48 @@ export interface WorldCfg {
   teams?: { rad: Pick[]; dire: Pick[] }
 }
 
+/** How close to a friendly tower or ancient a teleport click must land. */
+const TP_PICK_RANGE = 420
+/** Teleport channel time (s). */
+const TP_CHANNEL = 3
+
 const HERO_VISION_DAY = 1800
 const HERO_VISION_NIGHT = 1100
 
-export class World {
+/**
+ * The read side of a world: everything the renderer, minimap and HUD use. The simulation World implements it, and
+ * on clients the network replica fills one in from snapshots; presentation code depends on this, never on the
+ * simulation's mutating methods. (vfxQ is drained by the renderer.)
+ */
+export interface WorldView {
+  readonly time: number
+  readonly units: Unit[]
+  readonly heroes: Unit[]
+  readonly projs: Proj[]
+  readonly zones: Zone[]
+  readonly runes: Rune[]
+  readonly wards: { id: number; x: number; y: number; team: Team; expires: number }[]
+  readonly fxs: Fx[]
+  readonly feed: { t: number; text: string; team: number }[]
+  readonly kills: number[]
+  readonly winner: Team | null
+  readonly nextPowerRune: number
+  readonly isDay: boolean
+  vfxQ: any[]
+  player: Unit
+  isVisible(team: Team, u: Unit): boolean
+  runeVisible(team: Team, r: { x: number; y: number }): boolean
+  visionOf(u: Unit): number
+  nightAmount(): number
+  netWorth(h: Unit): number
+  canLevel(h: Unit, i: number): boolean
+  nearShop(h: Unit): boolean
+  pendingFor(h: Unit): ItemDef[]
+  castRange(u: Unit, st: AbilityState): number
+  courierFor(h: Unit): Unit | undefined
+}
+
+export class World implements WorldView {
   time = 0
   units: Unit[] = []
   heroes: Unit[] = []
@@ -136,9 +192,9 @@ export class World {
   /** one courier (Hop) per hero */
   courier: Unit[] = []
   courierFor(h: Unit): Unit | undefined {
-    return this.courier.find((c) => c.extra.owner === h.id)
+    return this.courier.find((c) => c.courierOf === h.id)
   }
-  private nameBank = fyShuffle([...['Rook', 'Ember', 'Nova', 'Quill', 'Bolt', 'Vex', 'Mira', 'Onyx', 'Fable', 'Zephyr', 'Kite', 'Rune', 'Slate', 'Echo', 'Sable', 'Tango', 'Wisp', 'Juno', 'Pike', 'Dusk', 'Moss', 'Flint', 'Briar', 'Ash']])
+  private nameBank = shuffle([...['Rook', 'Ember', 'Nova', 'Quill', 'Bolt', 'Vex', 'Mira', 'Onyx', 'Fable', 'Zephyr', 'Kite', 'Rune', 'Slate', 'Echo', 'Sable', 'Tango', 'Wisp', 'Juno', 'Pike', 'Dusk', 'Moss', 'Flint', 'Briar', 'Ash']])
   runes: Rune[] = []
   private runeId = 1
   nextPowerRune = 120
@@ -156,6 +212,7 @@ export class World {
   feed: { t: number; text: string; team: number }[] = []
   kills = [0, 0]
   winner: Team | null = null
+  /** The hero this client views and controls. Client-side only: the simulation never reads it (the host serves many players). */
   player!: Unit
   nextWave = 0
   waveNo = 0
@@ -166,34 +223,44 @@ export class World {
   dangerTimer: [number, number] = [-99, -99]
   dangerPos: [Pt | null, Pt | null] = [null, null]
   statsDirtyAt = 0
-  onEvent: ((k: string, x: number, y: number, mine: boolean, tag?: string) => void) | null = null
+  onEvent: ((k: string, x: number, y: number, to: Audience | undefined, tag?: string) => void) | null = null
 
-  emit(k: string, x: number, y: number, mine = false, tag = '') {
-    this.onEvent?.(k, x, y, mine, tag)
+  /** Sound event. `to` = who it concerns (they hear it at full volume; with `only`, nobody else hears it). */
+  emit(k: string, x: number, y: number, to?: Audience, tag = '') {
+    this.onEvent?.(k, x, y, to, tag)
   }
 
-  /** Announcer: spoken + on-screen line. team = the side the news is about (for good/bad tone). */
-  onAnnounce: ((text: string, sub: string, team: number | undefined, epic: boolean) => void) | null = null
+  /** Announcer: spoken + on-screen line. */
+  onAnnounce: ((a: Announcement) => void) | null = null
   private ancientAlert = [-99, -99]
   private megaTold = [false, false]
   private wasDay = true
   private firstBlood = false
   announce(text: string, sub = '', team?: number, epic = false) {
-    this.onAnnounce?.(text, sub, team, epic)
+    this.onAnnounce?.({ text, sub, team, epic })
+  }
+  /** Announcement about `about`'s side; each viewer gets the wording for their own team. */
+  announceAbout(kind: AnnKind, about: Team, sub: string, team: number | undefined, epic = false) {
+    this.onAnnounce?.({ text: ANN_TEXT[kind][1], sub, team, epic, kind, about })
   }
 
   get isDay() {
     return Math.floor(this.time / 300) % 2 === 0
   }
 
+  /** 0 by day, 1 by night, with 20 s fades (drives lighting and the night tint). */
+  nightAmount() {
+    const t = this.time % 600
+    if (t < 280) return 0
+    if (t < 300) return (t - 280) / 20
+    if (t < 580) return 1
+    return 1 - (t - 580) / 20
+  }
+
   /** replica = true builds an empty world to be filled from network snapshots. */
   constructor(cfg: WorldCfg, public replica = false) {
     if (replica) return
     this.buildMap()
-    for (const b of this.units) if (b.isBuilding) {
-      b.extra.fixX = b.x
-      b.extra.fixY = b.y
-    }
     this.buildHeroes(cfg)
     if (!this.player) this.player = this.heroes[0]
     this.computeVision()
@@ -264,7 +331,7 @@ export class World {
   private buildHeroes(cfg: WorldCfg) {
     const allIds = Object.keys(HERO_BY_ID)
     const playerDef = HERO_BY_ID[cfg.playerHero]
-    const pool = (ids: string[]) => fyShuffle(ids)
+    const pool = (ids: string[]) => shuffle(ids)
     const radIds = [playerDef.id, ...pool(allIds.filter((i) => i !== playerDef.id)).slice(0, 4)]
     const rest = allIds.filter((i) => !radIds.includes(i))
     // enemy team: different heroes when enough exist, otherwise mirror picks
@@ -284,15 +351,15 @@ export class World {
           const off = (i - 2) * 90
           h.x = FOUNTAIN_POS[team].x + (team === 0 ? 200 : -200) + off * (team === 0 ? 1 : -1)
           h.y = FOUNTAIN_POS[team].y + (team === 0 ? -200 : 200) + off * (team === 0 ? -1 : 1)
-          if (h.h!.isPlayer) this.player = h
+          if (h.h!.isHuman && !this.player) this.player = h
         })
       }
       return
     }
-    const slots: Lane[] = ['top', 'top', 'mid', 'bot', 'bot']
+    const slots = LANE_SLOTS
     const radLanes = [...slots]
     radLanes.splice(radLanes.indexOf(cfg.playerLane), 1)
-    const shuffled = (a: Lane[]) => fyShuffle(a)
+    const shuffled = (a: Lane[]) => shuffle(a)
     const lanesFor = [[cfg.playerLane, ...shuffled(radLanes)], shuffled(slots)]
     const defs = [rad, dire]
     for (const team of [0, 1] as Team[]) {
@@ -301,18 +368,18 @@ export class World {
         const off = (i - 2) * 90
         h.x = FOUNTAIN_POS[team].x + (team === 0 ? 200 : -200) + off * (team === 0 ? 1 : -1)
         h.y = FOUNTAIN_POS[team].y + (team === 0 ? -200 : 200) + off * (team === 0 ? -1 : 1)
-        if (h.h!.isPlayer) this.player = h
+        if (h.h!.isHuman) this.player = h
       })
     }
   }
 
-  private makeHero(team: Team, def: HeroDef, lane: Lane, isPlayer: boolean) {
+  private makeHero(team: Team, def: HeroDef, lane: Lane, isHuman: boolean) {
     const u = new Unit(team, 'hero', def.id, def.name, def.radius, {
       maxHp: 600, dmg: def.baseDmg, armor: def.armor, ms: def.ms, range: def.range, bat: def.bat, ap: def.ap, projSpeed: def.projSpeed, hpRegen: 1,
     })
     u.h = new HeroState(def, lane)
-    u.h.isPlayer = isPlayer
-    u.h.pname = isPlayer ? 'You' : this.nameBank.pop() || 'Bot'
+    u.h.isHuman = isHuman
+    u.h.pname = isHuman ? 'You' : this.nameBank.pop() || 'Bot'
     u.lane = lane
     this.recalc(u)
     u.hp = u.st.maxHp
@@ -321,12 +388,10 @@ export class World {
     this.heroes.push(u)
     this.add(u)
     this.spawnCourier(u)
-    if (isPlayer) u.h.items[5] = { def: ITEM_BY_ID['ward'], charges: 2, cdUntil: 0 }
-    if (!isPlayer) {
-      const st = u.h.abilities
+    if (isHuman) u.h.items[5] = { def: ITEM_BY_ID['ward'], charges: 2, cdUntil: 0 }
+    if (!isHuman) {
       // bots always learn their first skill
       this.autoLevel(u)
-      void st
     }
     return u
   }
@@ -345,8 +410,8 @@ export class World {
     cr.x = home.x
     cr.y = home.y
     cr.extra.home = home
-    cr.extra.owner = owner.id
-    cr.extra.noAuto = true
+    cr.courierOf = owner.id
+    cr.noAuto = true
     cr.extra.queue = []
     cr.extra.carry = []
     this.courier.push(cr)
@@ -360,7 +425,7 @@ export class World {
   }
 
   isVisible(team: Team, u: Unit) {
-    if ((team as number) === 2) return !u.isInvisible(this.time)
+    if (isNeutral(team)) return !u.isInvisible(this.time)
     return u.team === team || u.isBuilding || this.vis[team].has(u.id)
   }
 
@@ -455,25 +520,22 @@ export class World {
     if (this.vfxQ.length > 160) this.vfxQ.shift()
   }
 
-  /** Legacy effect helper: ring/line/meteor become real 3D effects, text stays a floating label. */
-  fx(f: any) {
-    if (f.k === 'ring') {
-      this.vfx('ring', { x: f.x, y: f.y, r0: f.r0, r1: f.r1, dur: f.dur, color: f.color })
-      return
-    }
-    if (f.k === 'line') {
-      this.vfx('beam', { x: f.x1, y: f.y1, x2: f.x2, y2: f.y2, dur: Math.max(0.15, f.dur ?? 0.3), color: f.color, width: (f.width || 6) * 1.4 })
-      return
-    }
-    if (f.k === 'meteor') {
-      this.vfx('meteor', { x: f.x, y: f.y, dur: (f.dur ?? 0.35) + 0.25, color: f.color })
-      return
-    }
-    this.fxs.push({ t0: this.time, ...f } as Fx)
+  /**
+   * The one way a spawned unit moves (walking, knockback, blinks, collision): buildings never move, everything
+   * stays on the map and out of cliff walls and solid obstacles (couriers fly over them).
+   */
+  displace(u: Unit, x: number, y: number) {
+    if (u.isBuilding) return
+    u.x = clamp(x, 30, MAP - 30)
+    u.y = clamp(y, 30, MAP - 30)
+    if (u.kind === 'courier') return
+    pushOutOfWalls(u)
+    pushOutOfSolids(u, Math.min(34, u.radius * 0.7))
   }
 
-  text(x: number, y: number, text: string, color = '#fff', size = 16) {
-    this.fx({ k: 'text', x, y, text, color, size, t0: this.time, dur: 1.1 })
+  /** Floating combat text. `to` limits who sees it (everyone when absent). */
+  text(x: number, y: number, text: string, color = '#fff', size = 16, to?: Audience) {
+    this.fxs.push({ k: 'text', x, y, text, color, size, t0: this.time, dur: 1.1, to })
   }
 
   after(sec: number, fn: () => void) {
@@ -682,10 +744,10 @@ export class World {
       this.text(t.x + (Math.random() - 0.5) * 40, t.y, String(Math.round(d)), col, 14 + Math.min(10, d / 45))
     }
     if (src && src.team !== t.team) {
-      if ((t.team as number) === 2) t.extra.provoked = src
+      if (isNeutral(t.team)) t.extra.provoked = src
       t.lastDamagedByEnemy = this.time
       // getting hit by an enemy interrupts a teleport channel
-      if (t.extra.tpUntil && t.channel && t.hp > 0) this.interrupt(t)
+      if (t.tpUntil && t.channel && t.hp > 0) this.interrupt(t)
       if (src.kind === 'hero') {
         t.lastDamagedByHero = this.time
         t.damagers.set(src.id, this.time)
@@ -695,7 +757,7 @@ export class World {
       }
       if (t.kind === 'ancient' && this.time - this.ancientAlert[t.team] > 45) {
         this.ancientAlert[t.team] = this.time
-        this.announce(t.team === (this.player?.team ?? 0) ? 'Your ancient is under attack!' : 'Enemy ancient under attack', '', 1 - t.team)
+        this.announceAbout('ancient_hit', t.team, '', 1 - t.team)
       }
       if (t.isBuilding) {
         this.dangerTimer[t.team] = this.time
@@ -739,10 +801,6 @@ export class World {
       for (const h of all) this.gold(h, (125 + 8 * L) / Math.max(1, all.length))
       return
     }
-    if (!killer) {
-      // several heroes damaged the victim before a creep/tower finished it: they share the bounty equally
-      for (const h of recent) this.gold(h, base / recent.length)
-    }
     // assist share (also given to the killer)
     const nwKill = this.heroes.filter((h) => h.team === enemy).reduce((n, h) => n + this.netWorth(h), 0)
     const nwVictim = this.heroes.filter((h) => h.team === t.team).reduce((n, h) => n + this.netWorth(h), 0)
@@ -778,20 +836,21 @@ export class World {
     while (hs.level < MAX_LEVEL && hs.xp >= XP_TABLE[hs.level]) {
       hs.level++
       hs.points++
-      this.fx({ k: 'ring', x: h.x, y: h.y, r0: 20, r1: 180, color: '#ffd24a', t0: this.time, dur: 0.7, width: 5 })
+      this.vfx('ring', { x: h.x, y: h.y, r0: 20, r1: 180, color: '#ffd24a', dur: 0.7 })
       this.text(h.x, h.y - 100, 'LEVEL UP!', '#ffd24a', 18)
-      this.emit('levelup', h.x, h.y, hs.isPlayer)
+      this.emit('levelup', h.x, h.y, { hero: h.id })
       this.recalc(h)
-      if (!hs.isPlayer) this.autoLevel(h)
+      if (!hs.isHuman) this.autoLevel(h)
     }
   }
 
   gold(h: Unit, amt: number, show = true) {
     h.h!.gold += Math.round(amt)
     h.h!.earned += Math.round(amt)
-    if (show && h.h!.isPlayer) {
-      this.text(h.x, h.y - 60, `+${Math.round(amt)}`, '#ffd24a', 17)
-      this.emit('gold', h.x, h.y, true)
+    if (show && h.h!.isHuman) {
+      const to = { hero: h.id, only: true }
+      this.text(h.x, h.y - 60, `+${Math.round(amt)}`, '#ffd24a', 17, to)
+      this.emit('gold', h.x, h.y, to)
     }
   }
 
@@ -810,6 +869,18 @@ export class World {
     t.dead = true
     t.deadAt = this.time
     t.hp = 0
+    this.stopEverything(t)
+    // Battle Hunger ends on a kill
+    if (src) for (const b of src.buffs) if (b.hunger) b.expires = 0
+    if (t.kind === 'summon') this.vfx('ring', { x: t.x, y: t.y, r0: 10, r1: 90, dur: 0.4, color: t.tint })
+    else if (t.kind === 'creep') this.creepDied(t, src)
+    else if (t.kind === 'tower') this.towerDied(t)
+    else if (t.kind === 'ancient') this.ancientDied(t)
+    else if (t.kind === 'hero') this.heroDied(t, src, o)
+  }
+
+  /** A dying unit drops its channel, cast, swing, forced movement and orders. */
+  private stopEverything(t: Unit) {
     if (t.channel) {
       const ch = t.channel
       t.channel = null
@@ -819,125 +890,114 @@ export class World {
     t.attackWind = null
     t.forced = null
     t.order = { t: 'idle' }
+  }
+
+  private creepDied(t: Unit, src: Unit | null) {
     const enemyTeam = (1 - t.team) as Team
-
-    // Battle Hunger ends on a kill
-    if (src) for (const b of src.buffs) if (b.hunger) b.expires = 0
-
-    if (t.kind === 'summon') {
-      this.fx({ k: 'ring', x: t.x, y: t.y, r0: 10, r1: 90, dur: 0.4, color: t.extra.color, width: 4 })
-    } else if (t.kind === 'creep' && (t.team as number) === 2) {
+    if (isNeutral(t.team)) {
       // jungle monster
-      if (src && src.team !== (2 as any)) {
+      if (src && !isNeutral(src.team)) {
         if (src.kind === 'hero') {
           src.h!.lh++
           this.gold(src, t.bounty)
         }
         this.giveXp(src.team, t.x, t.y, t.xp)
       }
-    } else if (t.kind === 'creep') {
-      const denied = src && src.kind === 'hero' && src.team === t.team
-      if (denied) {
-        src!.h!.dn++
-        this.giveXp(enemyTeam, t.x, t.y, t.xp * 0.5)
-        this.text(t.x, t.y - 50, 'denied', '#cfd8e0', 14)
-        this.emit('deny', t.x, t.y)
-      } else {
-        if (src && src.kind === 'hero') {
-          src.h!.lh++
-          this.gold(src, t.bounty)
-        }
-        if (!src || src.team !== t.team) this.giveXp(enemyTeam, t.x, t.y, t.xp)
+      return
+    }
+    if (src && src.kind === 'hero' && src.team === t.team) {
+      src.h!.dn++
+      this.giveXp(enemyTeam, t.x, t.y, t.xp * 0.5)
+      this.text(t.x, t.y - 50, 'denied', '#cfd8e0', 14)
+      this.emit('deny', t.x, t.y)
+      return
+    }
+    if (src && src.kind === 'hero') {
+      src.h!.lh++
+      this.gold(src, t.bounty)
+    }
+    if (!src || src.team !== t.team) this.giveXp(enemyTeam, t.x, t.y, t.xp)
+  }
+
+  private towerDied(t: Unit) {
+    const enemyTeam = (1 - t.team) as Team
+    const g = [120, 140, 160, 180][t.tier]
+    for (const h of this.heroes) if (h.team === enemyTeam) this.gold(h, g)
+    this.pushFeed(`${t.team === 0 ? 'Radiant' : 'Dire'} ${t.name} destroyed`, enemyTeam)
+    this.emit('tower', t.x, t.y, { all: true })
+    this.announceAbout('tower_down', t.team, t.name, enemyTeam)
+    this.updateTowerLocks()
+  }
+
+  private ancientDied(t: Unit) {
+    const enemyTeam = (1 - t.team) as Team
+    this.winner = enemyTeam
+    this.pushFeed(`${t.team === 0 ? 'Radiant' : 'Dire'} Ancient destroyed!`, enemyTeam)
+    this.announceAbout('ancient_down', t.team, 'The ancient has fallen', undefined, true)
+  }
+
+  private heroDied(t: Unit, src: Unit | null, o: KillOpts) {
+    const hs = t.h!
+    const enemyTeam = (1 - t.team) as Team
+    const prevStreak = hs.streak
+    hs.deaths++
+    this.emit('death', t.x, t.y, { team: t.team })
+    hs.respawnAt = this.time + 6 + hs.level * 2.8
+    // who gets the credit: the enemy hero that landed the blow; if creeps or a tower did, the last hero that damaged the
+    // victim in the last 20s (earlier damagers are assists); nobody recent = every enemy hero shares the bounty
+    const recent: Unit[] = []
+    // most recent damager first: kill stealing is allowed, so whoever hit last gets the kill
+    for (const [id, tm] of [...t.damagers].sort((a, b) => b[1] - a[1])) {
+      if (this.time - tm > 20) continue
+      const h = this.heroes.find((x) => x.id === id)
+      if (h && h.team === enemyTeam && !recent.includes(h)) recent.push(h)
+    }
+    t.damagers.clear()
+    const denied = !!src && src.team === t.team // denies and self-kills
+    const neutralKill = !!src && isNeutral(src.team)
+    let killer: Unit | null = src && src.kind === 'hero' && src.team !== t.team ? src : null
+    if (!killer && !denied && !neutralKill && recent.length > 0) killer = recent[0] // creep/tower finish: the last hero to hit gets it
+    if (killer) hs.streak = 0 // creep/neutral/deny deaths do not end a kill streak
+    this.kills[enemyTeam] += denied || neutralKill ? 0 : 1
+    this.emit('kill', t.x, t.y, { all: true })
+    if (!denied && !neutralKill) this.heroKillRewards(t, killer, recent, prevStreak)
+    if (killer) {
+      killer.h!.kills++
+      killer.h!.streak++
+      this.announceKill(killer, t, prevStreak)
+      for (const a of recent) if (a !== killer) a.h!.assists++
+      this.pushFeed(`${this.label(killer)} killed ${this.label(t)}`, enemyTeam)
+      const st = o.abilityId ? killer.h!.abilities.find((a) => a.def.id === o.abilityId) : undefined
+      if (st?.def.onKill) st.def.onKill(this, killer, t, st)
+    } else {
+      this.pushFeed(`${this.label(t)} was killed`, enemyTeam)
+    }
+    for (const h of this.heroes) {
+      if (h.dead || h.team !== enemyTeam) continue
+      for (const a of h.h!.abilities) {
+        if (a.def.onEnemyHeroDeath) a.def.onEnemyHeroDeath(this, h, t, killer, a.level || 1, a)
       }
-    } else if (t.kind === 'tower') {
-      const g = [120, 140, 160, 180][t.tier]
-      for (const h of this.heroes) if (h.team === enemyTeam) this.gold(h, g)
-      this.pushFeed(`${t.team === 0 ? 'Radiant' : 'Dire'} ${t.name} destroyed`, enemyTeam)
-      this.emit('tower', t.x, t.y, true)
-      this.announce(t.team === (this.player?.team ?? 0) ? 'Your tower has fallen' : 'Enemy tower destroyed', t.name, enemyTeam)
-      this.updateTowerLocks()
-    } else if (t.kind === 'ancient') {
-      this.winner = enemyTeam
-      this.pushFeed(`${t.team === 0 ? 'Radiant' : 'Dire'} Ancient destroyed!`, enemyTeam)
-      this.announce(enemyTeam === (this.player?.team ?? 0) ? 'Victory!' : 'Defeat', 'The ancient has fallen', undefined, true)
-    } else if (t.kind === 'hero') {
-      const hs = t.h!
-      const prevStreak = hs.streak
-      hs.deaths++
-      this.emit('death', t.x, t.y, t.team === (this.player?.team ?? 0))
-      hs.respawnAt = this.time + 6 + hs.level * 2.8
-      // who gets the credit: the enemy hero that landed the blow; if creeps or a tower did, the last hero that damaged the
-      // victim in the last 20s (earlier damagers are assists); nobody recent = every enemy hero shares the bounty
-      const recent: Unit[] = []
-      // most recent damager first: kill stealing is allowed, so whoever hit last gets the kill
-      for (const [id, tm] of [...t.damagers].sort((a, b) => b[1] - a[1])) {
-        if (this.time - tm > 20) continue
-        const h = this.heroes.find((x) => x.id === id)
-        if (h && h.team === enemyTeam && !recent.includes(h)) recent.push(h)
-      }
-      t.damagers.clear()
-      const denied = !!src && src.team === t.team // denies and self-kills
-      const neutralKill = !!src && (src.team as number) === 2
-      let killerHero: Unit | null = src && src.kind === 'hero' && src.team !== t.team ? src : null
-      if (!killerHero && !denied && !neutralKill && recent.length > 0) killerHero = recent[0] // creep/tower finish: the last hero to hit gets it
-      const countsAsKill = !!killerHero
-      if (countsAsKill) hs.streak = 0 // creep/neutral/deny deaths do not end a kill streak
-      this.kills[enemyTeam] += denied || neutralKill ? 0 : 1
-      this.emit('kill', t.x, t.y, true)
-      const assisters: Unit[] = []
-      for (const h of recent) if (h !== killerHero) assisters.push(h)
-      if (!denied && !neutralKill) this.heroKillRewards(t, killerHero, recent, prevStreak)
-      if (killerHero) {
-        killerHero.h!.kills++
-        killerHero.h!.streak++
-        // announcer: first blood, multi-kills, killing sprees, shutdowns
-        {
-          const kh = killerHero.h!
-          kh.multi = this.time - kh.lastKillAt < 18 ? kh.multi + 1 : 1
-          kh.lastKillAt = this.time
-          const nm = this.label(killerHero)
-          const multiTxt = ['', '', 'Double kill', 'Triple kill', 'Ultra kill', 'Rampage']
-          const sprees: Record<number, string> = { 3: 'Killing spree', 4: 'Dominating', 5: 'Mega kill', 6: 'Unstoppable', 7: 'Wicked sick', 8: 'Monster kill', 9: 'Godlike', 10: 'Beyond godlike' }
-          if (!this.firstBlood) {
-            this.firstBlood = true
-            this.announce('First blood!', `${nm} drew first blood`, killerHero.team, true)
-          } else if (kh.multi >= 2) {
-            this.announce(multiTxt[Math.min(5, kh.multi)] + '!', nm, killerHero.team, kh.multi >= 4)
-          } else if (sprees[Math.min(10, kh.streak)] && kh.streak >= 3) {
-            this.announce(sprees[Math.min(10, kh.streak)] + '!', `${nm} · ${kh.streak} kills in a row`, killerHero.team, kh.streak >= 6)
-          } else if (prevStreak >= 3) {
-            this.announce('Shutdown!', `${nm} ended ${this.label(t)}'s streak`, killerHero.team)
-          }
-        }
-        for (const a of assisters) a.h!.assists++
-        this.pushFeed(`${this.label(killerHero)} killed ${this.label(t)}`, enemyTeam)
-        // Assassinate refresh / Culling reset
-        const refresh = (id: string, stack = false) => {
-          const st = killerHero.h!.abilities.find((a) => a.def.id === id)
-          if (st) {
-            st.cdUntil = 0
-            if (stack) st.extra.stacks = (st.extra.stacks || 0) + 1
-          }
-        }
-        if (o.abilityId === 'sniper_assassinate') refresh('sniper_assassinate')
-        if (o.abilityId === 'axe_culling') {
-          refresh('axe_culling', true)
-          for (const h of this.heroes) {
-            if (h.team === killerHero.team && !h.dead && dist(h, killerHero) < 900) {
-              this.addBuff(h, { id: 'culling_haste', expires: this.time + 6, haste: 0.12, armor: 3, color: '#e8e8e8', label: 'Culling Blade' })
-            }
-          }
-        }
-      } else {
-        this.pushFeed(`${this.label(t)} was killed`, enemyTeam)
-      }
-      for (const h of this.heroes) {
-        if (h.dead || h.team !== enemyTeam) continue
-        for (const a of h.h!.abilities) {
-          if (a.def.onEnemyHeroDeath) a.def.onEnemyHeroDeath(this, h, t, killerHero, a.level || 1, a)
-        }
-      }
-      this.fx({ k: 'ring', x: t.x, y: t.y, r0: 20, r1: 200, color: '#ff5a4a', t0: this.time, dur: 0.6, width: 6 })
+    }
+    this.vfx('ring', { x: t.x, y: t.y, r0: 20, r1: 200, color: '#ff5a4a', dur: 0.6 })
+  }
+
+  /** Announcer: first blood, multi-kills, killing sprees, shutdowns. */
+  private announceKill(killer: Unit, victim: Unit, prevStreak: number) {
+    const kh = killer.h!
+    kh.multi = this.time - kh.lastKillAt < 18 ? kh.multi + 1 : 1
+    kh.lastKillAt = this.time
+    const nm = this.label(killer)
+    const multiTxt = ['', '', 'Double kill', 'Triple kill', 'Ultra kill', 'Rampage']
+    const sprees: Record<number, string> = { 3: 'Killing spree', 4: 'Dominating', 5: 'Mega kill', 6: 'Unstoppable', 7: 'Wicked sick', 8: 'Monster kill', 9: 'Godlike', 10: 'Beyond godlike' }
+    if (!this.firstBlood) {
+      this.firstBlood = true
+      this.announce('First blood!', `${nm} drew first blood`, killer.team, true)
+    } else if (kh.multi >= 2) {
+      this.announce(multiTxt[Math.min(5, kh.multi)] + '!', nm, killer.team, kh.multi >= 4)
+    } else if (sprees[Math.min(10, kh.streak)] && kh.streak >= 3) {
+      this.announce(sprees[Math.min(10, kh.streak)] + '!', `${nm} · ${kh.streak} kills in a row`, killer.team, kh.streak >= 6)
+    } else if (prevStreak >= 3) {
+      this.announce('Shutdown!', `${nm} ended ${this.label(victim)}'s streak`, killer.team)
     }
   }
 
@@ -965,9 +1025,7 @@ export class World {
     const hs = h.h!
     let guard = 30
     while (hs.points > 0 && guard-- > 0) {
-      const learned = hs.abilities.reduce((n, x) => n + x.level, 0)
-      const want = hs.def.skillOrder[learned]
-      if (want !== undefined && this.levelAbility(h, want)) continue
+      if (this.levelFromOrder(h)) continue
       let any = false
       for (let i = hs.abilities.length - 1; i >= 0; i--) {
         if (this.levelAbility(h, i)) {
@@ -977,6 +1035,16 @@ export class World {
       }
       if (!any) break
     }
+  }
+
+  /** Levels the first skill-order entry not yet learned, skipping entries that can't be levelled right now. */
+  private levelFromOrder(h: Unit) {
+    const hs = h.h!
+    const seen = hs.abilities.map(() => 0)
+    for (const i of hs.def.skillOrder) {
+      if (++seen[i] > hs.abilities[i].level && this.levelAbility(h, i)) return true
+    }
+    return false
   }
 
   /* ------------------------------------------------------------ orders */
@@ -1090,7 +1158,7 @@ export class World {
 
   /** Telekinesis: choose a landing spot while the target is airborne. */
   tkLand(c: Unit, x: number, y: number) {
-    const tk = c.extra.tk
+    const tk = c.tk
     if (!tk || this.time >= tk.end) return false
     const a = Math.atan2(y - tk.start.y, x - tk.start.x)
     const d = Math.min(375, Math.hypot(x - tk.start.x, y - tk.start.y))
@@ -1105,9 +1173,9 @@ export class World {
       this.wards = this.wards.filter((w) => w !== oldest)
     }
     this.wards.push({ id: this.wardId++, x, y, team: u.team, expires: this.time + 180 })
-    this.fx({ k: 'ring', x, y, r0: 20, r1: 220, dur: 0.6, color: '#ffe9a8', width: 5 })
-    if (u.team === this.player.team) this.text(x, y - 40, 'Ward placed', '#ffe9a8', 15)
-    this.emit('ward', x, y, u.team === this.player.team)
+    this.vfx('ring', { x, y, r0: 20, r1: 220, dur: 0.6, color: '#ffe9a8' })
+    this.text(x, y - 40, 'Ward placed', '#ffe9a8', 15, { team: u.team, only: true })
+    this.emit('ward', x, y, { team: u.team })
     this.computeVision()
   }
 
@@ -1119,19 +1187,29 @@ export class World {
     if (hs.tpScrolls <= 0) return 'No teleport scrolls (buy them in the shop)'
     if (this.time < hs.tpCd) return 'Teleport is on cooldown'
     if (u.channel) return 'Already channeling'
+    const b = this.nearestTpPoint(u.team, x, y)
+    if (!b) return 'Choose a friendly tower or building'
+    this.startTeleport(u, b)
+    return null
+  }
+
+  /** The living friendly tower or ancient closest to (x, y), if one is within `range`. */
+  nearestTpPoint(team: number, x: number, y: number, range = TP_PICK_RANGE): Unit | null {
     let b: Unit | null = null
-    let bd = 420
+    let bd = range
     for (const o of this.units) {
-      if (o.dead || o.team !== u.team || (o.kind !== 'tower' && o.kind !== 'ancient')) continue
+      if (o.dead || o.team !== team || (o.kind !== 'tower' && o.kind !== 'ancient')) continue
       const dd = Math.hypot(o.x - x, o.y - y)
       if (dd < bd) {
         bd = dd
         b = o
       }
     }
-    if (!b) return 'Choose a friendly tower or building'
-    this.startTeleport(u, b)
-    return null
+    return b
+  }
+
+  ancientOf(team: number): Unit | undefined {
+    return this.ancients.find((a) => a.team === team)
   }
 
   private startTeleport(u: Unit, b: Unit) {
@@ -1139,17 +1217,17 @@ export class World {
     u.order = { t: 'idle' }
     const hs = u.h!
     const from = { x: u.x, y: u.y }
-    const until = this.time + 3
+    const until = this.time + TP_CHANNEL
     const st = new AbilityState({ id: 'tp', name: 'Teleportation', color: '#6fd6ff' } as any, 1)
-    u.extra.tpUntil = until
-    this.vfx('tp_channel', { x: from.x, y: from.y, unit: u, dur: 3 })
-    this.vfx('tp_dest', { x: b.x, y: b.y, unit: u, dur: 3 })
+    u.tpUntil = until
+    this.vfx('tp_channel', { x: from.x, y: from.y, unit: u, dur: TP_CHANNEL })
+    this.vfx('tp_dest', { x: b.x, y: b.y, unit: u, dur: TP_CHANNEL })
     u.channel = {
       st,
       until,
       tick: () => {},
       end: (interrupted) => {
-        u.extra.tpUntil = 0
+        u.tpUntil = 0
         // the scroll is spent whether the teleport lands or is cancelled
         hs.tpScrolls = Math.max(0, hs.tpScrolls - 1)
         hs.tpCd = this.time + 20
@@ -1161,9 +1239,7 @@ export class World {
         const a = Math.atan2(MAP / 2 - b.y, MAP / 2 - b.x)
         const off = b.radius + 120
         this.vfx('tp_depart', { x: u.x, y: u.y })
-        u.x = clamp(b.x + Math.cos(a) * off, 40, MAP - 40)
-        u.y = clamp(b.y + Math.sin(a) * off, 40, MAP - 40)
-        pushOutOfWalls(u)
+        this.displace(u, b.x + Math.cos(a) * off, b.y + Math.sin(a) * off)
         u.forced = null
         this.vfx('tp_arrive', { x: u.x, y: u.y })
       },
@@ -1204,11 +1280,11 @@ export class World {
     })
     u.x = o.x
     u.y = o.y
-    u.extra.owner = o.owner
+    u.summoner = o.owner
     u.extra.life = this.time + o.life
-    u.extra.color = o.color || '#9ad0ff'
+    u.tint = o.color || '#9ad0ff'
     u.extra.tick = o.tick
-    u.extra.noAuto = true
+    u.noAuto = true
     u.facing = o.owner.facing
     this.add(u)
     return u
@@ -1291,61 +1367,78 @@ export class World {
     if (u.isStunned() || u.forced) return 'You are disabled'
     const d = it.def
     if (this.time < it.cdUntil) return 'Item is on cooldown'
-    if (d.active === 'salve') {
-      this.addBuff(u, { id: 'salve', expires: this.time + 13, regenHp: 30, breakOnDamage: true, color: '#7cc24a', label: 'Healing Salve' })
-    } else if (d.active === 'clarity') {
-      this.addBuff(u, { id: 'clarity', expires: this.time + 25, regenMana: 6, breakOnDamage: true, color: '#4aa8e0', label: 'Clarity' })
-    } else if (d.active === 'ward') {
-      if (x === undefined || y === undefined) return 'Need a target point'
-      if (Math.hypot(x - u.x, y - u.y) > (d.range || 650) + 40) return 'Too far away'
-      this.placeWard(u, x, y)
-    } else if (d.active === 'phase') {
-      this.addBuff(u, { id: 'phase', expires: this.time + 3, haste: 0.2, color: '#e0a05a', label: 'Phase Shift' })
-      it.cdUntil = this.time + (d.cd || 8)
-      return null
-    } else if (d.active === 'bkb' || d.active === 'shiva' || d.active === 'refresher' || d.active === 'force') {
-      if (d.mana && u.mana < d.mana) return 'Not enough mana'
-      if (d.active === 'bkb') {
-        this.addBuff(u, { id: 'bkb', expires: this.time + 9, immune: true, color: '#e8c24a', label: 'Black King Bar' })
-        this.fx({ k: 'ring', x: u.x, y: u.y, r0: 30, r1: 240, dur: 0.6, color: '#e8c24a', width: 8 })
-      } else if (d.active === 'shiva') {
-        this.fx({ k: 'ring', x: u.x, y: u.y, r0: 40, r1: 900, dur: 0.7, color: '#8ad8ff', width: 8 })
-        for (const e of this.enemiesIn(u.team, u.x, u.y, 900)) {
-          this.damage(u, e, 200, 'magical', { spell: true, abilityId: 'shiva' })
-          this.addBuff(e, { id: 'shiva_slow', expires: this.time + 4, slow: 0.4, src: u, color: '#8ad8ff', label: "Shiva's Guard" })
-        }
-      } else if (d.active === 'refresher') {
-        for (const a of u.h!.abilities) a.cdUntil = 0
-        if (u.h!.stolen) u.h!.stolen.cdUntil = 0
-        for (const o of u.h!.items) if (o && o !== it) o.cdUntil = 0
-        this.fx({ k: 'ring', x: u.x, y: u.y, r0: 20, r1: 260, dur: 0.8, color: '#5ae0a0', width: 8 })
-        this.text(u.x, u.y - 90, 'Refreshed!', '#5ae0a0', 18)
-      } else {
-        const a = u.facing
-        this.interrupt(u)
-        u.forced = { speed: 1200, tx: clamp(u.x + Math.cos(a) * 600, 60, MAP - 60), ty: clamp(u.y + Math.sin(a) * 600, 60, MAP - 60), stopDist: 0 } as any
-        this.fx({ k: 'ring', x: u.x, y: u.y, r0: 20, r1: 160, dur: 0.4, color: '#5ac8e0', width: 6 })
-      }
-      if (d.mana) u.mana -= d.mana
-      it.cdUntil = this.time + (d.cd || 20)
-      return null
-    } else if (d.active === 'blink') {
-      if (x === undefined || y === undefined) return 'Need a target point'
-      if (this.time - u.lastDamagedByHero < 3) return 'Blink Dagger is disabled for 3s after hero damage'
-      const a = Math.atan2(y - u.y, x - u.x)
-      const dd = Math.min(d.range || 1200, Math.hypot(x - u.x, y - u.y))
-      this.vfx('blink', { x: u.x, y: u.y, x2: u.x + Math.cos(a) * dd, y2: u.y + Math.sin(a) * dd, color: '#7ab8ff' })
-      u.x = clamp(u.x + Math.cos(a) * dd, 40, MAP - 40)
-      u.y = clamp(u.y + Math.sin(a) * dd, 40, MAP - 40)
-      this.cancelForOrder(u)
-      if (u.order.t === 'move' || u.order.t === 'cast') u.order = { t: 'idle' }
-      it.cdUntil = this.time + (d.cd || 15)
-      return null
+    switch (d.active) {
+      case 'salve':
+        this.addBuff(u, { id: 'salve', expires: this.time + 13, regenHp: 30, breakOnDamage: true, color: '#7cc24a', label: 'Healing Salve' })
+        break
+      case 'clarity':
+        this.addBuff(u, { id: 'clarity', expires: this.time + 25, regenMana: 6, breakOnDamage: true, color: '#4aa8e0', label: 'Clarity' })
+        break
+      case 'ward':
+        if (x === undefined || y === undefined) return 'Need a target point'
+        if (Math.hypot(x - u.x, y - u.y) > (d.range || 650) + 40) return 'Too far away'
+        this.placeWard(u, x, y)
+        break
+      case 'phase':
+        this.addBuff(u, { id: 'phase', expires: this.time + 3, haste: 0.2, color: '#e0a05a', label: 'Phase Shift' })
+        it.cdUntil = this.time + (d.cd || 8)
+        return null
+      case 'bkb':
+      case 'shiva':
+      case 'refresher':
+      case 'force':
+        return this.useManaItem(u, it)
+      case 'blink':
+        return this.useBlink(u, it, x, y)
     }
     if (d.consumable) {
       it.charges--
       if (it.charges <= 0) u.h!.items[slot] = null
     }
+    return null
+  }
+
+  /** Black King Bar, Shiva's Guard, Refresher Orb and Force Staff: mana cost, effect, cooldown. */
+  private useManaItem(u: Unit, it: ItemState): string | null {
+    const d = it.def
+    if (d.mana && u.mana < d.mana) return 'Not enough mana'
+    if (d.active === 'bkb') {
+      this.addBuff(u, { id: 'bkb', expires: this.time + 9, immune: true, color: '#e8c24a', label: 'Black King Bar' })
+      this.vfx('ring', { x: u.x, y: u.y, r0: 30, r1: 240, dur: 0.6, color: '#e8c24a' })
+    } else if (d.active === 'shiva') {
+      this.vfx('ring', { x: u.x, y: u.y, r0: 40, r1: 900, dur: 0.7, color: '#8ad8ff' })
+      for (const e of this.enemiesIn(u.team, u.x, u.y, 900)) {
+        this.damage(u, e, 200, 'magical', { spell: true, abilityId: 'shiva' })
+        this.addBuff(e, { id: 'shiva_slow', expires: this.time + 4, slow: 0.4, src: u, color: '#8ad8ff', label: "Shiva's Guard" })
+      }
+    } else if (d.active === 'refresher') {
+      for (const a of u.h!.abilities) a.cdUntil = 0
+      if (u.h!.stolen) u.h!.stolen.cdUntil = 0
+      for (const o of u.h!.items) if (o && o !== it) o.cdUntil = 0
+      this.vfx('ring', { x: u.x, y: u.y, r0: 20, r1: 260, dur: 0.8, color: '#5ae0a0' })
+      this.text(u.x, u.y - 90, 'Refreshed!', '#5ae0a0', 18)
+    } else {
+      const a = u.facing
+      this.interrupt(u)
+      u.forced = { speed: 1200, tx: clamp(u.x + Math.cos(a) * 600, 60, MAP - 60), ty: clamp(u.y + Math.sin(a) * 600, 60, MAP - 60), stopDist: 0 } as any
+      this.vfx('ring', { x: u.x, y: u.y, r0: 20, r1: 160, dur: 0.4, color: '#5ac8e0' })
+    }
+    if (d.mana) u.mana -= d.mana
+    it.cdUntil = this.time + (d.cd || 20)
+    return null
+  }
+
+  private useBlink(u: Unit, it: ItemState, x?: number, y?: number): string | null {
+    const d = it.def
+    if (x === undefined || y === undefined) return 'Need a target point'
+    if (this.time - u.lastDamagedByHero < 3) return 'Blink Dagger is disabled for 3s after hero damage'
+    const a = Math.atan2(y - u.y, x - u.x)
+    const dd = Math.min(d.range || 1200, Math.hypot(x - u.x, y - u.y))
+    this.vfx('blink', { x: u.x, y: u.y, x2: u.x + Math.cos(a) * dd, y2: u.y + Math.sin(a) * dd, color: '#7ab8ff' })
+    this.displace(u, u.x + Math.cos(a) * dd, u.y + Math.sin(a) * dd)
+    this.cancelForOrder(u)
+    if (u.order.t === 'move' || u.order.t === 'cast') u.order = { t: 'idle' }
+    it.cdUntil = this.time + (d.cd || 15)
     return null
   }
 
@@ -1358,7 +1451,7 @@ export class World {
     const mega = this.towers.every((t) => t.team === team || t.tier !== 2 || t.dead)
     if (mega && !this.megaTold[team]) {
       this.megaTold[team] = true
-      this.announce(team === (this.player?.team ?? 0) ? 'Mega creeps are coming!' : 'Enemy mega creeps incoming', 'Barracks destroyed', team, true)
+      this.announceAbout('mega', team, 'Barracks destroyed', team, true)
     }
     const melee = sub === 'melee'
     const hp = mega ? (melee ? 1270 : 1015) : melee ? 550 + 12 * up : 300 + 12 * up
@@ -1368,7 +1461,7 @@ export class World {
       bat: 1, ap: melee ? 0.467 : 0.5, projSpeed: 900, hpRegen: 0,
     })
     u.bounty = mega ? (melee ? 23 : 22) : melee ? 36.5 + up : 47.5 + 6 * up
-    if (mega) u.extra.mega = true
+    if (mega) u.mega = true
     u.xp = mega ? (melee ? 25 : 22) : melee ? 57 : 69 + 8 * up
     u.lane = lane
     const p = PATHS[team][lane].at(arc)
@@ -1417,7 +1510,7 @@ export class World {
       const pack = packs[c.tier]
       pack.forEach((m, i) => {
         const [name, sub, r, hp, dmg, armor, range, bat, ap, ms, bounty, xp] = m
-        const u = new Unit(2 as any, 'creep', sub, name, r, {
+        const u = new Unit(NEUTRAL, 'creep', sub, name, r, {
           maxHp: hp, dmg, armor, ms, range, bat, ap, projSpeed: 1000, hpRegen: 0,
         })
         const a = (i / pack.length) * Math.PI * 2 + 0.6
@@ -1530,22 +1623,6 @@ export class World {
     this.stepProjectiles(dt)
     this.stepZones(dt)
     this.separate(dt)
-    // buildings never move: pin them to where they were built (no push, knockback or collision can shift them)
-    for (const u of this.units) {
-      if (!u.isBuilding) continue
-      if (u.extra.fixX === undefined) {
-        u.extra.fixX = u.x
-        u.extra.fixY = u.y
-      } else if (u.x !== u.extra.fixX || u.y !== u.extra.fixY) {
-        u.x = u.extra.fixX
-        u.y = u.extra.fixY
-      }
-    }
-    for (const u of this.units) {
-      if (u.dead || u.isBuilding || u.kind === 'courier') continue
-      pushOutOfWalls(u)
-      pushOutOfSolids(u, Math.min(34, u.radius * 0.7))
-    }
     // vision
     this.visTimer -= dt
     if (this.visTimer <= 0) {
@@ -1567,7 +1644,7 @@ export class World {
   private spawnRune(kind: RuneKind, x: number, y: number) {
     this.runes = this.runes.filter((r) => Math.hypot(r.x - x, r.y - y) > 60)
     this.runes.push({ id: this.runeId++, kind, x, y, at: this.time })
-    this.fx({ k: 'ring', x, y, r0: 20, r1: 200, dur: 0.8, color: RUNE_INFO[kind].color, width: 5 })
+    this.vfx('ring', { x, y, r0: 20, r1: 200, dur: 0.8, color: RUNE_INFO[kind].color })
   }
 
   runeVisible(team: Team, r: { x: number; y: number }) {
@@ -1609,7 +1686,6 @@ export class World {
 
   private pickRune(h: Unit, r: Rune) {
     const info = RUNE_INFO[r.kind]
-    const you = h.team === this.player?.team
     if (r.kind === 'bounty') {
       const min = this.time / 60
       const gold = Math.round(55 + min * 4)
@@ -1639,8 +1715,8 @@ export class World {
       this.text(h.x, h.y - 120, `${info.name} Rune!`, info.color, 18)
       this.pushFeed(`${this.label(h)} captured the ${info.name} rune`, h.team)
     }
-    this.fx({ k: 'ring', x: h.x, y: h.y, r0: 20, r1: 180, dur: 0.6, color: info.color, width: 5 })
-    this.emit(you ? 'rune' : 'gold', h.x, h.y, you)
+    this.vfx('ring', { x: h.x, y: h.y, r0: 20, r1: 180, dur: 0.6, color: info.color })
+    this.emit('rune', h.x, h.y, { team: h.team })
   }
 
   private stepBuffs(u: Unit, dt: number) {
@@ -1689,7 +1765,7 @@ export class World {
       u.forced = null
       u.revealUntil = 0
       this.recalc(u)
-      if (u.h!.isPlayer) this.emit('respawn', u.x, u.y, true)
+      if (u.h!.isHuman) this.emit('respawn', u.x, u.y, { hero: u.id, only: true })
     }
   }
 
@@ -1732,8 +1808,7 @@ export class World {
     const step = Math.min(u.st.ms * dt, Math.max(0, d - stop))
     u.vx = (dx / d) * u.st.ms
     u.vy = (dy / d) * u.st.ms
-    u.x += (dx / d) * step
-    u.y += (dy / d) * step
+    this.displace(u, u.x + (dx / d) * step, u.y + (dy / d) * step)
     return direct && d - step <= stop + 1
   }
 
@@ -1750,7 +1825,7 @@ export class World {
     // everything waiting at the shop is picked up in one go
     if (stash.length && atHome) {
       carry.push(...stash.splice(0))
-      this.fx({ k: 'ring', x: c.x, y: c.y, r0: 10, r1: 90, dur: 0.4, color: '#ffe9a8', width: 4 })
+      this.vfx('ring', { x: c.x, y: c.y, r0: 10, r1: 90, dur: 0.4, color: '#ffe9a8' })
     }
     let target: Unit | null = null
     if (!stash.length) {
@@ -1762,15 +1837,14 @@ export class World {
         }
       }
     }
-    c.extra.delivering = !!target
+    c.delivering = !!target
     const dest = target ? { x: target.x, y: target.y } : home
     const d = Math.hypot(dest.x - c.x, dest.y - c.y)
     const stop = target ? 110 : 8
     if (d > stop) {
       const step = Math.min(c.st.ms * dt, d - stop)
       c.facing = Math.atan2(dest.y - c.y, dest.x - c.x)
-      c.x += (Math.cos(c.facing)) * step
-      c.y += (Math.sin(c.facing)) * step
+      this.displace(c, c.x + Math.cos(c.facing) * step, c.y + Math.sin(c.facing) * step)
       c.vx = Math.cos(c.facing) * c.st.ms
       c.vy = Math.sin(c.facing) * c.st.ms
     } else {
@@ -1792,8 +1866,8 @@ export class World {
       }
       if (given) {
         this.text(target.x, target.y - 90, `Hop delivered ${given} item${given > 1 ? 's' : ''}`, '#ffe9a8', 16)
-        this.fx({ k: 'ring', x: target.x, y: target.y, r0: 20, r1: 130, dur: 0.5, color: '#ffe9a8', width: 4 })
-        if (target.h!.isPlayer) this.emit('delivery', target.x, target.y, true)
+        this.vfx('ring', { x: target.x, y: target.y, r0: 20, r1: 130, dur: 0.5, color: '#ffe9a8' })
+        if (target.h!.isHuman) this.emit('delivery', target.x, target.y, { hero: target.id, only: true })
       }
     }
   }
@@ -1818,8 +1892,7 @@ export class World {
       return
     }
     const step = Math.min(f.speed * dt, d - stop)
-    u.x = clamp(u.x + (dx / d) * step, 30, MAP - 30)
-    u.y = clamp(u.y + (dy / d) * step, 30, MAP - 30)
+    this.displace(u, u.x + (dx / d) * step, u.y + (dy / d) * step)
     u.vx = 0
     u.vy = 0
     if (d - step <= stop + 2) {
@@ -1837,7 +1910,7 @@ export class World {
       if (t.dead || t.team === u.team) continue
       if (t.isInvulnerable() || !this.isVisible(u.team, t)) continue
       if (t.kind === 'fountain') continue
-      if ((t.team as number) === 2 && (u.kind === 'summon' || u.kind === 'creep')) continue // only heroes pull jungle camps
+      if (isNeutral(t.team) && (u.kind === 'summon' || u.kind === 'creep')) continue // only heroes pull jungle camps
       const d = dist(u, t) - t.radius
       if (d > r) continue
       if (t.isBuilding) {
@@ -1902,7 +1975,7 @@ export class World {
       case 'idle':
       case 'hold': {
         const r = u.st.range
-        const t = u.kind === 'creep' || u.extra.noAuto ? null : this.acquire(u, r + 40, u.kind !== 'hero')
+        const t = u.kind === 'creep' || u.noAuto ? null : this.acquire(u, r + 40, u.kind !== 'hero')
         if (t) this.attackStep(u, t, dt, false)
         break
       }
@@ -2023,7 +2096,7 @@ export class World {
     if (u.h) {
       for (const a of u.h.abilities) if (a.level > 0 && a.def.onAttackHit) dmg += a.def.onAttackHit(this, u, t, a.level, a)
     }
-    if (u.extra.mega && t.isBuilding) dmg *= 2.2
+    if (u.mega && t.isBuilding) dmg *= 2.2
     if (u.kind === 'fountain') {
       // the fountain deals exactly 200 pure damage per hit (armor and evasion cannot save you)
       this.damage(u, t, 200, 'pure', { attack: true })
@@ -2055,7 +2128,7 @@ export class World {
     const lvl = st.level
     if (c.target && (c.target.dead || (d.target === 'enemy' && c.target.team !== u.team && !this.isVisible(u.team, c.target)))) return
     if (d.behavior === 'unit' && c.target) {
-      const range = this.castRange(u, st) + c.target.radius + (d.id === 'sniper_assassinate' ? 600 : 80)
+      const range = this.castRange(u, st) + c.target.radius + (d.castSlack ?? 80)
       if (dist(u, c.target) > range) return
     }
     const mana = d.mana[lvl - 1] || 0
@@ -2069,7 +2142,7 @@ export class World {
         st.cdUntil = this.time + (d.cd[lvl - 1] || 0)
         blk.expires = 0
         this.text(c.target.x, c.target.y - 90, 'BLOCKED', '#bff0ff', 17)
-        this.fx({ k: 'ring', x: c.target.x, y: c.target.y, r0: 20, r1: 150, dur: 0.5, color: '#bff0ff', width: 5 })
+        this.vfx('ring', { x: c.target.x, y: c.target.y, r0: 20, r1: 150, dur: 0.5, color: '#bff0ff' })
         return
       }
     }
@@ -2081,10 +2154,7 @@ export class World {
     }
     if (u.h && d.stealable !== false && d.behavior !== 'passive') u.h.lastCast = { def: d, level: lvl }
     d.cast?.(this, u, lvl, { unit: c.target, x: c.x, y: c.y }, st)
-    this.emit('cast', u.x, u.y, !!u.h?.isPlayer, d.color)
-    if (u.h) {
-      u.h.lastCast = d.stealable === false ? u.h.lastCast : { def: d, level: lvl }
-    }
+    this.emit('cast', u.x, u.y, u.h ? { hero: u.id } : undefined, d.color)
   }
 
   /* ------------------------------------------------------- projectiles */
@@ -2182,16 +2252,12 @@ export class World {
         const nx = dx / d
         const ny = dy / d
         if (a.isBuilding) {
-          b.x += nx * push * 2
-          b.y += ny * push * 2
+          this.displace(b, b.x + nx * push * 2, b.y + ny * push * 2)
         } else if (b.isBuilding) {
-          a.x -= nx * push * 2
-          a.y -= ny * push * 2
+          this.displace(a, a.x - nx * push * 2, a.y - ny * push * 2)
         } else {
-          a.x -= nx * push
-          a.y -= ny * push
-          b.x += nx * push
-          b.y += ny * push
+          this.displace(a, a.x - nx * push, a.y - ny * push)
+          this.displace(b, b.x + nx * push, b.y + ny * push)
         }
       }
     }

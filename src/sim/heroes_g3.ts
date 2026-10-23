@@ -1,14 +1,10 @@
 import type { AbilityDef, HeroDef, Unit } from './entities'
 import type { World } from './world'
 import { dist } from './constants'
-import { L, ang, same, heroesNear } from './abkit'
+import { L, ang, same, heroesNear, predict } from './abkit'
 
 /** New heroes (g3): Crystal Maiden, Pugna, Silencer. */
 
-const predict = (c: Unit, t: Unit, speed: number, k = 0.8) => {
-  const lead = (dist(c, t) / speed) * k
-  return { x: t.x + t.vx * lead, y: t.y + t.vy * lead }
-}
 
 /* ================================================================== CRYSTAL MAIDEN */
 
@@ -16,7 +12,7 @@ const NOVA_DMG = [110, 160, 210, 260]
 const NOVA_SLOW = [0.2, 0.3, 0.4, 0.5]
 const NOVA_AS = [30, 45, 60, 75]
 
-export const CM_CRYSTAL_NOVA: AbilityDef = {
+const CM_CRYSTAL_NOVA: AbilityDef = {
   id: 'crystal_maiden_crystal_nova', name: 'Crystal Nova', glyph: '❄', color: '#9fe0ff',
   behavior: 'point', range: same(4, 700), castPoint: 0.3, cd: [11, 10, 9, 8], mana: [115, 135, 155, 175], maxLevel: 4,
   desc: 'A burst of damaging frost slows enemy movement and attack rate in the targeted area.',
@@ -47,7 +43,7 @@ export const CM_CRYSTAL_NOVA: AbilityDef = {
 
 const FROST_DUR = [1.5, 2, 2.5, 3]
 
-export const CM_FROSTBITE: AbilityDef = {
+const CM_FROSTBITE: AbilityDef = {
   id: 'crystal_maiden_frostbite', name: 'Frostbite', glyph: '✱', color: '#bfeaff',
   behavior: 'unit', target: 'enemy', range: same(4, 600), castPoint: 0.3, cd: [9, 8, 7, 6], mana: [125, 135, 145, 155], maxLevel: 4,
   desc: 'Encases an enemy unit in ice, prohibiting movement and attack, while dealing damage over time. Lasts 10 seconds on creeps.',
@@ -70,7 +66,7 @@ export const CM_FROSTBITE: AbilityDef = {
 
 const AURA_REGEN = [0.4, 0.6, 0.8, 1]
 
-export const CM_ARCANE_AURA: AbilityDef = {
+const CM_ARCANE_AURA: AbilityDef = {
   id: 'crystal_maiden_arcane_aura', name: 'Arcane Aura', glyph: '✧', color: '#7fb8ff',
   behavior: 'passive', castPoint: 0, cd: same(4, 0), mana: same(4, 0), maxLevel: 4,
   desc: 'Gives additional mana regeneration to all allied heroes on the map. Allies near Crystal Maiden receive triple the bonus, and Crystal Maiden herself receives seven times the bonus.',
@@ -99,7 +95,7 @@ export const CM_ARCANE_AURA: AbilityDef = {
 
 const FF_DMG = [105, 170, 250]
 
-export const CM_FREEZING_FIELD: AbilityDef = {
+const CM_FREEZING_FIELD: AbilityDef = {
   id: 'crystal_maiden_freezing_field', name: 'Freezing Field', glyph: '❆', color: '#7fd4ff',
   behavior: 'none', castPoint: 0, cd: [100, 95, 90], mana: [200, 400, 600], maxLevel: 3, ult: true,
   desc: 'Surrounds Crystal Maiden with 100 random icy explosions that slow enemies and deal massive damage. Grants bonus armor while channeling. Lasts 10 seconds.',
@@ -148,7 +144,7 @@ export const CM_FREEZING_FIELD: AbilityDef = {
 
 const NB_DMG = [100, 180, 260, 340]
 
-export const PUGNA_NETHER_BLAST: AbilityDef = {
+const PUGNA_NETHER_BLAST: AbilityDef = {
   id: 'pugna_nether_blast', name: 'Nether Blast', glyph: '✺', color: '#6fe05a',
   behavior: 'point', range: same(4, 600), castPoint: 0.2, cd: same(4, 5), mana: [100, 115, 130, 145], maxLevel: 4,
   desc: 'An exploding pulse of emerald flame deals damage to enemies in the area after a short delay. Structures take reduced damage.',
@@ -182,7 +178,7 @@ export const PUGNA_NETHER_BLAST: AbilityDef = {
 const DEC_RANGE = [475, 550, 625, 700]
 const DEC_SLOW = [0.45, 0.5, 0.55, 0.6]
 
-export const PUGNA_DECREPIFY: AbilityDef = {
+const PUGNA_DECREPIFY: AbilityDef = {
   id: 'pugna_decrepify', name: 'Decrepify', glyph: '☁', color: '#9ad88a',
   behavior: 'unit', target: 'any', range: DEC_RANGE, castPoint: 0.2, cd: [16, 13, 10, 7], mana: same(4, 80), maxLevel: 4,
   desc: 'A powerful banishing spell that slows a unit and renders it unable to attack or be attacked by physical damage. Afflicted units take extra magic damage. Can be cast on allies or on Pugna himself.',
@@ -210,7 +206,7 @@ const WARD_BASE = [50, 70, 90, 110]
 const WARD_MULT = [1, 1.2, 1.4, 1.6]
 const WARD_LIFE = [18, 22, 26, 30]
 
-export const PUGNA_NETHER_WARD: AbilityDef = {
+const PUGNA_NETHER_WARD: AbilityDef = {
   id: 'pugna_nether_ward', name: 'Nether Ward', glyph: '♆', color: '#4ad88a',
   behavior: 'point', range: same(4, 150), castPoint: 0.2, cd: same(4, 40), mana: same(4, 80), maxLevel: 4,
   desc: 'Places a Nether Ward at the target location. The ward fires at any enemy hero within range who spends mana on a spell, dealing base damage plus a multiple of the mana spent.',
@@ -260,7 +256,7 @@ export const PUGNA_NETHER_WARD: AbilityDef = {
 const LD_DPS = [160, 240, 320]
 const LD_HEAL = [120, 210, 300]
 
-export const PUGNA_LIFE_DRAIN: AbilityDef = {
+const PUGNA_LIFE_DRAIN: AbilityDef = {
   id: 'pugna_life_drain', name: 'Life Drain', glyph: '☥', color: '#c8f05a',
   behavior: 'unit', target: 'any', range: same(3, 700), castPoint: 0.2, cd: same(3, 7), mana: [100, 150, 200], maxLevel: 3, ult: true,
   desc: 'Drains health from an enemy unit to heal Pugna. If Pugna is at full health and the target is a hero, mana is restored instead. On an ally, Pugna drains his own health into them. Channeled up to 10 seconds; breaks if the link stretches beyond 900.',
@@ -343,7 +339,7 @@ function applyCurse(w: World, c: Unit, tg: Unit, l: number) {
   step()
 }
 
-export const SIL_ARCANE_CURSE: AbilityDef = {
+const SIL_ARCANE_CURSE: AbilityDef = {
   id: 'silencer_curse', name: 'Arcane Curse', glyph: '☾', color: '#a070e0',
   behavior: 'point', range: same(4, 1000), castPoint: 0.3, cd: [22, 20, 18, 16], mana: [130, 135, 140, 145], maxLevel: 4,
   desc: 'Curses an area, dealing damage and causing enemy heroes to take damage over time and be slowed. Silenced enemies take 1.5x slow and damage. The curse lasts 6 seconds, is extended by 2 seconds whenever the target casts a spell, and is paused while the target is silenced.',
@@ -375,7 +371,7 @@ const GL_STEAL = [1, 1, 2, 3]
 const GL_TIME = [20, 25, 30, 35]
 const GL_COST = 20
 
-export const SIL_GLAIVES: AbilityDef = {
+const SIL_GLAIVES: AbilityDef = {
   id: 'silencer_glaives', name: 'Glaives of Wisdom', glyph: '✦', color: '#c8b0f0',
   behavior: 'passive', castPoint: 0, cd: same(4, 0), mana: same(4, 0), maxLevel: 4,
   desc: 'Silencer enchants his glaives with wisdom: attacks (while he has the mana) deal bonus pure damage based on his Intelligence and steal intelligence from the target. Killing an enemy hero nearby permanently steals 2 intelligence.',
@@ -417,7 +413,7 @@ const LW_BASE = [120, 160, 200, 240]
 const LW_MULT = [1, 1.5, 2, 2.5]
 const LW_SIL = [3, 4, 5, 6]
 
-export const SIL_LAST_WORD: AbilityDef = {
+const SIL_LAST_WORD: AbilityDef = {
   id: 'silencer_last_word', name: 'Last Word', glyph: '✎', color: '#b890e8',
   behavior: 'unit', target: 'enemy', range: same(4, 900), castPoint: 0.3, cd: [22, 18, 14, 10], mana: [100, 105, 110, 115], maxLevel: 4,
   desc: 'Enchants a target for 4 seconds. If it casts a spell or the timer expires, it takes damage (plus a bonus based on how much more Intelligence Silencer has) and is silenced.',
@@ -458,7 +454,7 @@ export const SIL_LAST_WORD: AbilityDef = {
 
 const GS_DUR = [4.5, 5.25, 6]
 
-export const SIL_GLOBAL_SILENCE: AbilityDef = {
+const SIL_GLOBAL_SILENCE: AbilityDef = {
   id: 'silencer_global_silence', name: 'Global Silence', glyph: '⛔', color: '#d0b8ff',
   behavior: 'none', castPoint: 0.3, cd: [130, 115, 100], mana: [300, 450, 600], maxLevel: 3, ult: true,
   desc: 'Stops all sound, preventing every enemy hero on the map from casting spells and interrupting their channels.',
@@ -491,7 +487,7 @@ export const HEROES_G3: HeroDef[] = [
     color: '#8fd0ff', color2: '#2a5aa0', roles: ['Support', 'Disabler', 'Nuker'],
     lore: 'Exiled to the wastes of Icewrack, Rylai channels the cold of the Blueheart Glacier to freeze her foes and fuel her allies.',
     abilities: [CM_CRYSTAL_NOVA, CM_FROSTBITE, CM_ARCANE_AURA, CM_FREEZING_FIELD],
-    skillOrder: [1, 0, 1, 2, 1, 3, 1, 0, 0, 0, 3, 2, 2, 2, 3, 3],
+    skillOrder: [1, 0, 1, 2, 1, 3, 1, 0, 0, 0, 3, 2, 2, 2, 3],
     buy: ['boots', 'clarity', 'staff', 'energy', 'staff', 'blink'],
   },
   {
@@ -501,7 +497,7 @@ export const HEROES_G3: HeroDef[] = [
     color: '#5a9a48', color2: '#1e3a1a', roles: ['Nuker', 'Pusher'],
     lore: 'A demonic warlock of the Nether Reaches who banishes, drains and detonates his enemies with the Arts of Oblivion.',
     abilities: [PUGNA_NETHER_BLAST, PUGNA_DECREPIFY, PUGNA_NETHER_WARD, PUGNA_LIFE_DRAIN],
-    skillOrder: [0, 2, 0, 1, 0, 3, 0, 2, 2, 2, 3, 1, 1, 1, 3, 3],
+    skillOrder: [0, 2, 0, 1, 0, 3, 0, 2, 2, 2, 3, 1, 1, 1, 3],
     buy: ['boots', 'clarity', 'staff', 'energy', 'staff', 'blink'],
   },
   {
@@ -511,7 +507,7 @@ export const HEROES_G3: HeroDef[] = [
     color: '#8a80a8', color2: '#3a2a5a', roles: ['Carry', 'Support', 'Disabler'],
     lore: 'Nortrom of the Aeol Drias needs no incantations, and ensures that every spell his enemies speak will be their last.',
     abilities: [SIL_ARCANE_CURSE, SIL_GLAIVES, SIL_LAST_WORD, SIL_GLOBAL_SILENCE],
-    skillOrder: [1, 0, 1, 2, 1, 3, 1, 0, 0, 0, 3, 2, 2, 2, 3, 3],
+    skillOrder: [1, 0, 1, 2, 1, 3, 1, 0, 0, 0, 3, 2, 2, 2, 3],
     buy: ['boots', 'clarity', 'staff', 'ogre', 'energy', 'blink'],
   },
 ]

@@ -1,21 +1,91 @@
 import { ROCKS, TREES } from '../sim/obstacles'
 import * as THREE from 'three'
-import { MAP, Pt, TEAM_COLOR, Team } from '../sim/constants'
+import { MAP, Pt, TEAM_COLOR, Team, isNeutral } from '../sim/constants'
 import type { Unit } from '../sim/entities'
-import { RUNE_INFO, type World } from '../sim/world'
-import { Overlay, Renderer } from './renderer'
+import { RUNE_INFO, reaches, type WorldView } from '../sim/world'
+import { Minimap } from './minimap'
+import { optimizeModel } from './modelopt'
 import { buildTerrain } from './terrain3d'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
+import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js'
 import { Vfx } from './vfx'
 import { buildCourier } from './couriers3d'
 import { buildSummon } from './summons3d'
 import { buildNeutral } from './neutrals3d'
 import { Model, buildAncient, buildCreep, buildFountain, buildHero, buildTower } from './models'
 
+export interface Overlay {
+  /** circle drawn around the player (ability range) */
+  rangeCircle?: { r: number; color: string } | null
+  /** target hover highlight */
+  hover?: Unit | null
+  /** ground aoe preview at the cursor */
+  aoe?: { x: number; y: number; r: number; color: string } | null
+  attackMove?: boolean
+  cursor?: Pt
+  line?: { from: Pt; to: Pt; width: number; color: string } | null
+}
+
 const PITCH = (58 * Math.PI) / 180
+export type Quality = 'low' | 'medium' | 'high'
+export const QUALITIES: Quality[] = ['low', 'medium', 'high']
+/**
+ * dpr: pixel-ratio cap; aa: post-process antialiasing; bloom: bloom resolution scale (0 = off).
+ * No MSAA on the composer targets: multisampled targets make every post pass pay MSAA cost (measured at 2x DPR:
+ * 4x MSAA + bloom ~41 ms GPU vs ~4 ms without MSAA), while FXAA is one cheap full-screen pass (SMAA measured ~7 ms).
+ */
+const QUALITY_CFG: Record<Quality, { dpr: number; fxaa: boolean; bloom: number; shadowMap: number }> = {
+  low: { dpr: 1, fxaa: false, bloom: 0, shadowMap: 1024 },
+  medium: { dpr: 1.5, fxaa: true, bloom: 0.5, shadowMap: 2048 },
+  high: { dpr: 2, fxaa: true, bloom: 1, shadowMap: 2048 },
+}
+const loadQuality = (): Quality => {
+  try {
+    const q = localStorage.getItem('ac-quality') as Quality | null
+    if (q && QUALITIES.includes(q)) return q
+  } catch {
+    /* storage unavailable */
+  }
+  return 'medium'
+}
+
+const SHADOW_KINDS = new Set(['hero', 'tower', 'ancient', 'courier', 'fountain'])
+
+/** Frees the GPU resources under `root`. Skipped: shared projectile meshes, and cached merged geometry (sharedGeo). */
+function disposeTree(root: THREE.Object3D) {
+  root.traverse((o) => {
+    const m = o as THREE.Mesh
+    if (!m.isMesh || m.userData.shared) return
+    if (!m.userData.sharedGeo) m.geometry.dispose()
+    const mats = Array.isArray(m.material) ? m.material : [m.material]
+    for (const mt of mats) mt.dispose()
+  })
+}
+
+/** Projectile geometries are identical for every shot of a style, so they are built once. */
+const PROJ_GEO = {
+  link: new THREE.TorusGeometry(9, 3, 6, 10),
+  claw: new THREE.ConeGeometry(9, 46, 6),
+  clawHub: new THREE.SphereGeometry(16, 10, 8),
+  shaft: new THREE.CylinderGeometry(3, 3, 110, 6),
+  tip: new THREE.ConeGeometry(9, 28, 6),
+  arrowGlow: new THREE.CylinderGeometry(10, 10, 120, 8),
+  bullet: new THREE.CylinderGeometry(3, 3, 70, 6),
+  bulletGlow: new THREE.CylinderGeometry(7, 7, 80, 8),
+  core: new THREE.SphereGeometry(0.55, 10, 8),
+  orb: new THREE.SphereGeometry(1, 12, 10),
+}
+const projMats = new Map<string, THREE.Material>()
+/** Shared projectile material, keyed by kind and colour. */
+function projMat(key: string, make: () => THREE.Material) {
+  let m = projMats.get(key)
+  if (!m) projMats.set(key, (m = make()))
+  return m
+}
 
 interface Entry {
   model: Model
@@ -27,6 +97,8 @@ interface Entry {
   casting: any
   shell: THREE.Mesh | null
   chT: number
+  /** opacity multiplier currently applied to the model's materials (1 = untouched) */
+  fade: number
 }
 
 interface ProjMesh {
@@ -47,7 +119,7 @@ export class Renderer3D {
   octx: CanvasRenderingContext2D
   fog: HTMLCanvasElement
   fctx: CanvasRenderingContext2D
-  helper: Renderer
+  minimap: Minimap
   dpr = 1
   sun: THREE.DirectionalLight
   hemi: THREE.HemisphereLight
@@ -56,7 +128,7 @@ export class Renderer3D {
   runeMeshes = new Map<number, THREE.Group>()
   vfx!: Vfx
   composer!: EffectComposer
-  bloom!: UnrealBloomPass
+  quality = loadQuality()
   projMeshes = new Map<any, ProjMesh>()
   private lastFrame = performance.now()
   private origEm = new WeakMap<THREE.Material, { c: THREE.Color; i: number }>()
@@ -65,10 +137,11 @@ export class Renderer3D {
   // local ground->screen affine (set each frame)
   A = { ox: 0, oy: 0, ax: 1, ay: 0, bx: 0, by: 1 }
 
-  constructor(public canvas: HTMLCanvasElement, public w: World) {
+  constructor(public canvas: HTMLCanvasElement, public w: WorldView) {
     this.myTeam = w.player.team
     this.cam = { x: w.player.x, y: w.player.y }
-    this.gl = new THREE.WebGLRenderer({ canvas, antialias: true })
+    // antialiasing happens on the post-processing target, so the canvas itself needs none
+    this.gl = new THREE.WebGLRenderer({ canvas, antialias: false })
     this.gl.shadowMap.enabled = true
     this.gl.shadowMap.type = THREE.PCFSoftShadowMap
     this.gl.outputColorSpace = THREE.SRGBColorSpace
@@ -86,14 +159,13 @@ export class Renderer3D {
     this.fog = document.createElement('canvas')
     this.fctx = this.fog.getContext('2d')!
 
-    // 2D helper paints the ground texture and the minimap
-    this.helper = new Renderer(document.createElement('canvas'), w)
+    this.minimap = new Minimap(w)
 
     this.hemi = new THREE.HemisphereLight('#c8d8ff', '#5a5040', 1.15)
     this.scene.add(this.hemi)
     this.sun = new THREE.DirectionalLight('#fff0d0', 2.1)
     this.sun.castShadow = true
-    this.sun.shadow.mapSize.set(2048, 2048)
+    this.sun.shadow.mapSize.setScalar(QUALITY_CFG[this.quality].shadowMap)
     const sc = this.sun.shadow.camera
     sc.left = -1700
     sc.right = 1700
@@ -106,7 +178,7 @@ export class Renderer3D {
     this.scene.add(this.sun)
     this.scene.add(this.sun.target)
 
-    this.helper.groundImg = buildTerrain(this.scene, this.helper)
+    this.minimap.groundImg = buildTerrain(this.scene)
     this.vfx = new Vfx(this.scene)
     this.setupComposer()
     this.resize()
@@ -115,16 +187,44 @@ export class Renderer3D {
   /* ------------------------------------------------------------ setup */
 
   private setupComposer() {
-    const rt = new THREE.WebGLRenderTarget(this.W || 800, this.H || 600, { type: THREE.HalfFloatType, samples: 4 })
+    const cfg = QUALITY_CFG[this.quality]
+    const rt = new THREE.WebGLRenderTarget(this.W || 800, this.H || 600, { type: THREE.HalfFloatType })
     this.composer = new EffectComposer(this.gl, rt)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(this.W || 800, this.H || 600), 0.4, 0.5, 0.9)
-    this.composer.addPass(this.bloom)
+    if (cfg.bloom > 0) {
+      const bloom = new UnrealBloomPass(new THREE.Vector2(this.W || 800, this.H || 600), 0.4, 0.5, 0.9)
+      // bloom is a blur, so a lower internal resolution is hard to see and much cheaper
+      const setSize = bloom.setSize.bind(bloom)
+      bloom.setSize = (w: number, h: number) => setSize(Math.max(1, Math.round(w * cfg.bloom)), Math.max(1, Math.round(h * cfg.bloom)))
+      this.composer.addPass(bloom)
+    }
     this.composer.addPass(new OutputPass())
+    // antialiasing runs last, on the tone-mapped image
+    this.fxaa = cfg.fxaa ? new ShaderPass(FXAAShader) : null
+    if (this.fxaa) this.composer.addPass(this.fxaa)
+  }
+  private fxaa: ShaderPass | null = null
+
+  /** Switches the graphics preset (pixel ratio, antialiasing, bloom, shadow map) and remembers it. */
+  setQuality(q: Quality) {
+    if (q === this.quality) return
+    this.quality = q
+    try {
+      localStorage.setItem('ac-quality', q)
+    } catch {
+      /* storage unavailable */
+    }
+    for (const pass of this.composer.passes) pass.dispose()
+    this.composer.dispose()
+    this.sun.shadow.map?.dispose()
+    this.sun.shadow.map = null
+    this.sun.shadow.mapSize.setScalar(QUALITY_CFG[q].shadowMap)
+    this.setupComposer()
+    this.resize()
   }
 
   resize() {
-    this.dpr = Math.min(window.devicePixelRatio || 1, 2)
+    this.dpr = Math.min(window.devicePixelRatio || 1, QUALITY_CFG[this.quality].dpr)
     this.W = window.innerWidth
     this.H = window.innerHeight
     this.gl.setPixelRatio(this.dpr)
@@ -142,6 +242,7 @@ export class Renderer3D {
     if (this.composer) {
       this.composer.setPixelRatio(this.dpr)
       this.composer.setSize(this.W, this.H)
+      this.fxaa?.material.uniforms['resolution'].value.set(1 / (this.W * this.dpr), 1 / (this.H * this.dpr))
     }
   }
 
@@ -170,7 +271,7 @@ export class Renderer3D {
 
   /** Sets the route polyline drawn on the minimap. */
   setRoute(r: Pt[] | null) {
-    this.helper.route = r
+    this.minimap.route = r
   }
 
   /**
@@ -180,7 +281,6 @@ export class Renderer3D {
   pickGround(sx: number, sy: number): Pt {
     const g = this.toWorld(sx, sy)
     const o = this.ray.ray.origin
-    const d = this.ray.ray.direction
     let best: Pt | null = null
     let bt = Infinity
     const a = new THREE.Vector3()
@@ -209,8 +309,26 @@ export class Renderer3D {
     return best ?? g
   }
 
+  private scratch = new THREE.Vector3()
+  private litNight: boolean | null = null
+  /** cached screen vignette (rebuilt when the viewport changes) */
+  private vignette: { key: string; g: CanvasGradient } | null = null
+  /** soft-edged disc punched out of the fog layer for each vision source */
+  private punchImg = (() => {
+    const cv = document.createElement('canvas')
+    cv.width = cv.height = 128
+    const c = cv.getContext('2d')!
+    const g = c.createRadialGradient(64, 64, 64 * 0.78, 64, 64, 64)
+    g.addColorStop(0, 'rgba(0,0,0,1)')
+    g.addColorStop(1, 'rgba(0,0,0,0)')
+    c.fillStyle = g
+    c.beginPath()
+    c.arc(64, 64, 64, 0, Math.PI * 2)
+    c.fill()
+    return cv
+  })()
   toScreen(wx: number, wy: number, h = 0): Pt {
-    const v = new THREE.Vector3(wx, h, wy).project(this.camera)
+    const v = this.scratch.set(wx, h, wy).project(this.camera)
     // points behind the camera (or past the far plane) project mirrored onto the screen: push them far off instead,
     // otherwise they could be clicked, hovered or get ghost health bars
     if (v.z > 1 || v.z < -1) return { x: -1e5, y: -1e5 }
@@ -248,22 +366,27 @@ export class Renderer3D {
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0)
   }
 
-  nightAmount() {
-    return this.helper.nightAmount()
-  }
 
   /* -------------------------------------------------------- unit models */
 
   private makeModel(u: Unit): Model {
+    const key = `${u.kind}|${u.kind === 'hero' ? u.h!.def.id : u.sub}|${u.team}|${u.radius}|${u.kind === 'summon' ? u.tint : ''}`
+    const m = optimizeModel(this.buildModel(u), key)
+    // only the big silhouettes cast shadows: creeps and summons would double the draw calls for little visual gain
+    if (!SHADOW_KINDS.has(u.kind)) m.group.traverse((o) => (o.castShadow = false))
+    return m
+  }
+
+  private buildModel(u: Unit): Model {
     switch (u.kind) {
       case 'hero':
         return buildHero(u.h!.def.id, u.h!.def.color, u.h!.def.color2, u.team, u.radius)
       case 'creep':
-        return (u.team as number) === 2 ? buildNeutral(u.sub, u.radius) : buildCreep(u.sub, u.team, u.radius)
+        return isNeutral(u.team) ? buildNeutral(u.sub, u.radius) : buildCreep(u.sub, u.team, u.radius)
       case 'courier':
         return buildCourier(u.team, u.radius)
       case 'summon':
-        return buildSummon(u.sub, u.team, u.radius, u.extra.color)
+        return buildSummon(u.sub, u.team, u.radius, u.tint)
       case 'tower':
         return buildTower(u.team, u.radius)
       case 'ancient':
@@ -282,7 +405,7 @@ export class Renderer3D {
       seen.add(u.id)
       let e = this.entries.get(u.id)
       if (!e) {
-        e = { model: this.makeModel(u), kind: u.kind, swing: 0, lastAtk: 0, fxT: 0, seen: new Set(), casting: null, shell: null, chT: 0 }
+        e = { model: this.makeModel(u), kind: u.kind, swing: 0, lastAtk: 0, fxT: 0, seen: new Set(), casting: null, shell: null, chT: 0, fade: 1 }
         this.scene.add(e.model.group)
         this.entries.set(u.id, e)
       }
@@ -298,8 +421,8 @@ export class Renderer3D {
       if (!show) continue
       const s0 = u.kind === 'hero' ? 1.55 : u.kind === 'creep' ? 1.35 : u.kind === 'courier' ? 1.7 : u.kind === 'summon' ? 1.2 : 1
       let y = 0
-      if (u.kind === 'hero' && u.hasBuff('tk') && u.extra.liftStart) {
-        const k = (t - u.extra.liftStart) / Math.max(0.1, u.extra.liftEnd - u.extra.liftStart)
+      if (u.kind === 'hero' && u.hasBuff('tk') && u.liftStart) {
+        const k = (t - u.liftStart) / Math.max(0.1, u.liftEnd - u.liftStart)
         y = Math.max(0, Math.min(1, Math.sin(Math.min(1, k) * Math.PI) * 1.4)) * 170
       }
       if (u.kind === 'courier') {
@@ -310,7 +433,7 @@ export class Renderer3D {
         if (wheels) wheels.children.forEach((w) => (w.rotation.z -= speed * 0.0016))
         const wings = g.userData.wings as THREE.Object3D | undefined
         if (wings) {
-          const fl = Math.sin(t * (u.extra.delivering ? 9 : 4)) * 0.08
+          const fl = Math.sin(t * (u.delivering ? 9 : 4)) * 0.08
           wings.children.forEach((w) => (w.rotation.x = (w.userData.side as number) * fl))
         }
       }
@@ -356,10 +479,6 @@ export class Renderer3D {
       if (deathK > 0) {
         g.rotation.z = deathK * 1.45
         g.position.y = -deathK * 24
-        for (const mt of m.mats) {
-          mt.transparent = true
-          mt.opacity = 1 - deathK * 0.9
-        }
       } else if (u.kind === 'hero') g.rotation.z = 0
       // damage flash
       const fl = Math.max(0, 1 - (t - u.hitAt) / 0.2)
@@ -385,21 +504,31 @@ export class Renderer3D {
       // living-model animation hook
       m.update?.(t, { moving, casting: !!u.casting, attacking: !!u.attackWind })
       this.unitFx(e, u, t, s0)
-      // invisibility
+      // dying heroes fade out, invisible heroes are translucent; respawned / visible ones get their materials back
       const inv = u.kind === 'hero' && u.isInvisible(t)
-      if (inv || e.swing === 1) {
-        for (const mt of m.mats) {
-          mt.transparent = true
-          mt.opacity = inv ? 0.32 : 1
-        }
-        e.swing = inv ? 1 : 0
-      }
+      this.setFade(e, deathK > 0 ? 1 - deathK * 0.9 : inv ? 0.32 : 1)
     }
     for (const [id, e] of this.entries) {
       if (!seen.has(id)) {
         this.scene.remove(e.model.group)
+        disposeTree(e.model.group)
         this.entries.delete(id)
       }
+    }
+  }
+
+  private origOp = new WeakMap<THREE.Material, { o: number; t: boolean }>()
+  private setFade(e: Entry, k: number) {
+    if (k === e.fade) return
+    e.fade = k
+    for (const mt of e.model.mats) {
+      let o = this.origOp.get(mt)
+      if (!o) {
+        o = { o: mt.opacity, t: mt.transparent }
+        this.origOp.set(mt, o)
+      }
+      mt.opacity = o.o * k
+      mt.transparent = k < 1 || o.t
     }
   }
 
@@ -423,7 +552,7 @@ export class Renderer3D {
     }
     e.casting = u.casting
     // channel / aim beams
-    const tgt = u.channel?.target ?? (u.casting && u.casting.st.def.id === 'sniper_assassinate' ? u.casting.target : null)
+    const tgt = u.channel?.target ?? (u.casting?.st.def.aimBeam ? u.casting.target : null)
     if (tgt && t - e.chT > 0.14) {
       e.chT = t
       const col = u.channel ? u.channel.st.def.color : '#ff4a3a'
@@ -447,14 +576,12 @@ export class Renderer3D {
       }
       if (b.invuln || b.immune || b.spellBlock || b.lift || b.ethereal) shellCol = b.color || (b.spellBlock ? '#bff0ff' : b.ethereal ? '#d8f0ff' : '#ffe9a8')
       if (!heroish) continue
-      const at = this.posOf(u)
       if (b.slow) this.vfx.spawn({ name: 'aura', kind: 'frost', unit: u, x: u.x, y: u.y, z: 10, dur: 0.3, color: '#bfe8ff' }, this.posOf)
       if (b.dot) this.vfx.spawn({ name: 'aura', kind: 'fire', unit: u, x: u.x, y: u.y, dur: 0.3, color: col, color2: '#ff4a20' }, this.posOf)
       if (b.silence) this.vfx.spawn({ name: 'aura', kind: 'wisp', unit: u, x: u.x, y: u.y, dur: 0.3, color: '#c8a0ff' }, this.posOf)
       if (b.haste && b.haste > 0.15) this.vfx.spawn({ name: 'aura', kind: 'streak', unit: u, x: u.x, y: u.y, dur: 0.3, color: col }, this.posOf)
       if (b.regenHp && b.regenHp > 4) this.vfx.spawn({ name: 'sparkle', x: u.x, y: u.y, z: H * 0.5, color: '#7aff9a', count: 4, r: 40 })
       if (b.dmgMul) this.vfx.spawn({ name: 'aura', kind: 'fire', unit: u, x: u.x, y: u.y, dur: 0.3, color: '#ff6a3a', color2: '#ffcf5a' }, this.posOf)
-      void at
     }
     // protective shell
     if (shellCol) {
@@ -476,51 +603,57 @@ export class Renderer3D {
   private makeProj(p: any): ProjMesh {
     const g = new THREE.Group()
     const col = p.color || (p.kind === 'linear' ? '#fff0a0' : '#ffffff')
-    const glowMat = () => new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false })
+    const glowMat = () => projMat('glow' + col, () => new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }))
+    const basic = (c: string) => projMat('basic' + c, () => new THREE.MeshBasicMaterial({ color: c }))
+    const mesh = (geo: THREE.BufferGeometry, mt: THREE.Material) => {
+      const m = new THREE.Mesh(geo, mt)
+      m.userData.shared = true
+      return m
+    }
     let links: THREE.Mesh[] | undefined
     if (p.kind === 'linear' && p.draw === 'hook') {
-      const stone = new THREE.MeshStandardMaterial({ color: '#9a9aa8', metalness: 0.7, roughness: 0.4 })
+      const stone = projMat('hookStone', () => new THREE.MeshStandardMaterial({ color: '#9a9aa8', metalness: 0.7, roughness: 0.4 }))
       links = []
       for (let i = 0; i < 26; i++) {
-        const l = new THREE.Mesh(new THREE.TorusGeometry(9, 3, 6, 10), stone)
+        const l = mesh(PROJ_GEO.link, stone)
         l.castShadow = true
         links.push(l)
         this.scene.add(l)
       }
       const head = new THREE.Group()
-      const claw = new THREE.MeshStandardMaterial({ color: '#c9c9d4', metalness: 0.8, roughness: 0.3 })
+      const claw = projMat('hookClaw', () => new THREE.MeshStandardMaterial({ color: '#c9c9d4', metalness: 0.8, roughness: 0.3 }))
       for (let i = 0; i < 3; i++) {
-        const c = new THREE.Mesh(new THREE.ConeGeometry(9, 46, 6), claw)
-        c.position.set(0, 0, 0)
+        const c = mesh(PROJ_GEO.claw, claw)
         c.rotation.z = Math.PI / 2
         c.rotation.x = (i / 3) * Math.PI * 2
         c.position.set(18, Math.sin((i / 3) * Math.PI * 2) * 14, Math.cos((i / 3) * Math.PI * 2) * 14)
         head.add(c)
       }
-      head.add(new THREE.Mesh(new THREE.SphereGeometry(16, 10, 8), claw))
+      head.add(mesh(PROJ_GEO.clawHub, claw))
       g.add(head)
     } else if ((p.kind === 'linear' && p.draw === 'arrow') || p.style === 'arrow') {
-      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 110, 6), new THREE.MeshBasicMaterial({ color: '#f4e8b0' }))
+      const shaft = mesh(PROJ_GEO.shaft, basic('#f4e8b0'))
       shaft.rotation.z = Math.PI / 2
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(9, 28, 6), new THREE.MeshBasicMaterial({ color: '#ffffff' }))
+      const tip = mesh(PROJ_GEO.tip, basic('#ffffff'))
       tip.rotation.z = -Math.PI / 2
       tip.position.x = 62
-      const glow = new THREE.Mesh(new THREE.CylinderGeometry(10, 10, 120, 8), glowMat())
+      const glow = mesh(PROJ_GEO.arrowGlow, glowMat())
       glow.rotation.z = Math.PI / 2
       g.add(shaft, tip, glow)
       if (p.kind !== 'linear') g.scale.setScalar(0.55)
     } else if (p.style === 'bullet') {
-      const b = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 70, 6), new THREE.MeshBasicMaterial({ color: '#ffffff' }))
+      const b = mesh(PROJ_GEO.bullet, basic('#ffffff'))
       b.rotation.z = Math.PI / 2
-      const glow = new THREE.Mesh(new THREE.CylinderGeometry(7, 7, 80, 8), glowMat())
+      const glow = mesh(PROJ_GEO.bulletGlow, glowMat())
       glow.rotation.z = Math.PI / 2
       g.add(b, glow)
     } else {
       const r = p.kind === 'linear' ? 22 : Math.max(9, (p.size || 4) * 2.6)
-      const core = new THREE.Mesh(new THREE.SphereGeometry(r * 0.55, 10, 8), new THREE.MeshBasicMaterial({ color: '#ffffff' }))
-      const glow = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 10), glowMat())
+      const core = mesh(PROJ_GEO.core, basic('#ffffff'))
+      core.scale.setScalar(r)
+      const glow = mesh(PROJ_GEO.orb, glowMat())
+      glow.scale.setScalar(p.style === 'fire' ? r * 1.3 : r)
       g.add(core, glow)
-      if (p.style === 'fire') glow.scale.set(1.3, 1.3, 1.3)
     }
     this.scene.add(g)
     // particle trail that follows the projectile until it disappears
@@ -603,6 +736,7 @@ export class Renderer3D {
     for (const [id, g] of this.runeMeshes) {
       if (!live.has(id)) {
         this.scene.remove(g)
+        disposeTree(g)
         this.runeMeshes.delete(id)
       }
     }
@@ -643,6 +777,7 @@ export class Renderer3D {
     for (const [id, g] of this.wardMeshes) {
       if (!live.has(id)) {
         this.scene.remove(g)
+        disposeTree(g)
         this.wardMeshes.delete(id)
       }
     }
@@ -655,14 +790,17 @@ export class Renderer3D {
     this.placeCamera()
     this.updateAffine()
     // lighting follows the camera target, tinted at night
-    const night = this.nightAmount()
-    const d = new THREE.Vector3(-900, 1700, 900)
-    this.sun.position.set(this.cam.x + d.x, d.y, this.cam.y + d.z)
+    const night = w.nightAmount()
+    this.sun.position.set(this.cam.x - 900, 1700, this.cam.y + 900)
     this.sun.target.position.set(this.cam.x, 0, this.cam.y)
     this.sun.intensity = 2.1 - 0.7 * night
-    this.sun.color.set(night > 0.5 ? '#a8bcff' : '#fff0d0')
     this.hemi.intensity = 1.15 - 0.2 * night
-    this.hemi.color.set(night > 0.5 ? '#8a9ae0' : '#c8d8ff')
+    const isNight = night > 0.5
+    if (isNight !== this.litNight) {
+      this.litNight = isNight
+      this.sun.color.set(isNight ? '#a8bcff' : '#fff0d0')
+      this.hemi.color.set(isNight ? '#8a9ae0' : '#c8d8ff')
+    }
     this.syncUnits()
     this.syncWards()
     this.syncRunes()
@@ -676,20 +814,19 @@ export class Renderer3D {
     this.vfx.update(dtv)
     this.composer.render()
 
-    // sync helper for the minimap
-    const h = this.helper
-    h.cam = this.cam
-    h.W = this.W
-    h.H = this.H
-    h.scale = this.scale * 0.8
-    h.myTeam = this.myTeam
-    void w
+    // the minimap's camera rectangle follows the main view
+    const mm = this.minimap
+    mm.cam = this.cam
+    mm.W = this.W
+    mm.H = this.H
+    mm.scale = this.scale * 0.8
+    mm.myTeam = this.myTeam
 
     this.drawOverlay(ov)
   }
 
   drawMinimap(c: CanvasRenderingContext2D, size: number) {
-    this.helper.drawMinimap(c, size)
+    this.minimap.drawMinimap(c, size)
   }
 
   /* ----------------------------------------------------------- overlay */
@@ -716,12 +853,13 @@ export class Renderer3D {
     for (const hh of w.heroes) {
       if (hh.dead) continue
       for (const a of hh.h!.abilities) {
-        if (a.def.id === 'pudge_rot' && a.toggled && a.level > 0) {
+        const area = a.def.toggleArea
+        if (area && a.toggled && a.level > 0) {
           c.beginPath()
-          c.arc(hh.x, hh.y, 250, 0, Math.PI * 2)
-          c.fillStyle = 'rgba(120,190,50,0.2)'
+          c.arc(hh.x, hh.y, area.r, 0, Math.PI * 2)
+          c.fillStyle = area.fill
           c.fill()
-          c.strokeStyle = 'rgba(150,220,70,0.7)'
+          c.strokeStyle = area.stroke
           c.lineWidth = lw(3)
           c.stroke()
         }
@@ -800,21 +938,6 @@ export class Renderer3D {
       c.lineWidth = lw(3)
       c.stroke()
     }
-    // ring fx
-    for (const f of w.fxs) {
-      const k = (w.time - f.t0) / f.dur
-      if (k < 0 || k > 1 || f.k !== 'ring') continue
-      c.beginPath()
-      c.arc(f.x!, f.y!, f.r0! + (f.r1! - f.r0!) * k, 0, Math.PI * 2)
-      c.globalAlpha = 1 - k
-      c.strokeStyle = f.color || '#fff'
-      c.lineWidth = lw(f.width || 3)
-      c.stroke()
-      c.globalAlpha = (1 - k) * 0.18
-      c.fillStyle = f.color || '#fff'
-      c.fill()
-      c.globalAlpha = 1
-    }
 
     // ---- screen-space layer
     this.screenT(c)
@@ -829,13 +952,13 @@ export class Renderer3D {
       const s = S(u.x, u.y, hgt)
       if (s.x < -80 || s.x > this.W + 80 || s.y < -80 || s.y > this.H + 80) continue
       const friend = u.team === this.myTeam
-      const col = (u.team as number) === 2 ? '#e0a23a' : friend ? '#4fd04f' : '#e04a3a'
+      const col = isNeutral(u.team) ? '#e0a23a' : friend ? '#4fd04f' : '#e04a3a'
       if (u.kind === 'hero') {
         const wd = Math.max(70, Math.min(130, ppu * 190))
         this.bar(c, s.x, s.y - 14, wd, 11, u.hp / u.st.maxHp, col)
         if (u.st.maxMana > 0) this.bar(c, s.x, s.y - 3, wd, 6, u.mana / u.st.maxMana, '#4a8ae8')
         // name label (player or bot)
-        const human = u.h!.isPlayer
+        const human = u.h!.isHuman
         const label = (human ? '★ ' : '') + (u.h!.pname || u.name)
         c.font = "800 14px 'Barlow Condensed', sans-serif"
         c.textAlign = 'center'
@@ -894,7 +1017,7 @@ export class Renderer3D {
 
     // floating text
     for (const f of w.fxs) {
-      if (f.k !== 'text') continue
+      if (f.k !== 'text' || !reaches(f.to, w.player)) continue
       const k = (w.time - f.t0) / f.dur
       if (k < 0 || k > 1) continue
       const s = S(f.x!, f.y!, 140 + k * 110)
@@ -913,15 +1036,19 @@ export class Renderer3D {
     this.drawFog(c)
 
     // night tint + vignette
-    const night = this.nightAmount()
+    const night = w.nightAmount()
     if (night > 0.01) {
       c.fillStyle = `rgba(30,50,140,${0.07 * night})`
       c.fillRect(0, 0, this.W, this.H)
     }
-    const g = c.createRadialGradient(this.W / 2, this.H / 2, Math.min(this.W, this.H) * 0.5, this.W / 2, this.H / 2, Math.max(this.W, this.H) * 0.8)
-    g.addColorStop(0, 'rgba(0,0,0,0)')
-    g.addColorStop(1, 'rgba(0,0,0,0.15)')
-    c.fillStyle = g
+    const vk = `${this.W}x${this.H}`
+    if (!this.vignette || this.vignette.key !== vk) {
+      const g = c.createRadialGradient(this.W / 2, this.H / 2, Math.min(this.W, this.H) * 0.5, this.W / 2, this.H / 2, Math.max(this.W, this.H) * 0.8)
+      g.addColorStop(0, 'rgba(0,0,0,0)')
+      g.addColorStop(1, 'rgba(0,0,0,0.15)')
+      this.vignette = { key: vk, g }
+    }
+    c.fillStyle = this.vignette.g
     c.fillRect(0, 0, this.W, this.H)
   }
 
@@ -954,17 +1081,7 @@ export class Renderer3D {
       const rx = Math.abs(e.x - s.x) * k
       const ry = Math.abs(s.y - n.y) * k
       if (!isFinite(rx) || rx < 2) return
-      fctx.save()
-      fctx.translate(s.x * k, s.y * k)
-      fctx.scale(1, ry / rx)
-      const g = fctx.createRadialGradient(0, 0, rx * 0.78, 0, 0, rx)
-      g.addColorStop(0, 'rgba(0,0,0,1)')
-      g.addColorStop(1, 'rgba(0,0,0,0)')
-      fctx.fillStyle = g
-      fctx.beginPath()
-      fctx.arc(0, 0, rx, 0, Math.PI * 2)
-      fctx.fill()
-      fctx.restore()
+      fctx.drawImage(this.punchImg, s.x * k - rx, s.y * k - ry, rx * 2, ry * 2)
     }
     for (const u of w.units) if (u.team === this.myTeam && !u.dead) punch(u.x, u.y, w.visionOf(u))
     for (const z of w.zones) if (z.reveal && z.team === this.myTeam && w.time >= z.start) punch(z.x, z.y, z.r + 100)

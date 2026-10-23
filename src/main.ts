@@ -1,7 +1,7 @@
 import './styles.css'
 import { Game } from './game'
 import { NetClient } from './net/client'
-import { Replica } from './net/snapshot'
+import { Replica, SnapshotDecoder } from './net/snapshot'
 import { showEnd, showSelect } from './ui/screens'
 import { showNetLobby, showTitle } from './ui/netlobby'
 import { showLoading, type LoadSeat } from './ui/loading'
@@ -72,13 +72,25 @@ async function multiplayer(): Promise<string | null> {
     location.reload()
   })
   client.onStart = (m) => {
+    if (game) {
+      // resumed after a dropped connection: the next snapshot is a keyframe
+      reconnecting = false
+      game.hud.toast('Reconnected')
+      return
+    }
+    // the lobby screen is gone; late lobby messages must not redraw it over the match or the end screen
+    client.onLobby = null
+    client.onBusy = null
     const lobbySeats: any[] = (client.lastLobby?.seats as any[]) || []
     const seats: LoadSeat[] = lobbySeats.map((x) => ({ team: x.team, hero: x.hero, lane: x.lane, name: x.name, human: x.kind === 'human', you: x.seat === m.seat }))
     const loader = showLoading(screen, seats)
     loader.set(0.15, 'Connected to the host…')
     const replica = new Replica()
+    const decoder = new SnapshotDecoder()
     let building = false
-    client.onSnap = async (s) => {
+    client.onSnap = async (d) => {
+      const s = decoder.decode(d)
+      if (!s) return
       replica.apply(s, performance.now())
       if (game || building) return
       building = true
@@ -98,13 +110,29 @@ async function multiplayer(): Promise<string | null> {
     game?.sfx.play('error')
   }
   client.onReset = () => location.reload()
+  let reconnecting = false
   client.onClose = () => {
-    if (game) {
-      game.hud.toast('Disconnected from the host')
-      setTimeout(() => location.reload(), 2500)
-    } else {
+    if (!game) {
       showTitle(screen, singlePlayer, multiplayer)
+      return
     }
+    if (reconnecting) return // a failed attempt closing; the retry loop handles it
+    reconnecting = true
+    // try to get back in: on welcome the client offers its resume token and the host hands the hero back
+    game.hud.toast('Connection lost — reconnecting…')
+    let tries = 0
+    const giveUp = () => {
+      game!.hud.toast('Could not reconnect to the host')
+      setTimeout(() => location.reload(), 2500)
+    }
+    const retry = () => {
+      if (++tries > 15) return giveUp()
+      client
+        .connect()
+        .then(() => setTimeout(() => reconnecting && giveUp(), 5000)) // connected, but the host did not hand the hero back
+        .catch(() => setTimeout(retry, 1500))
+    }
+    setTimeout(retry, 800)
   }
   return null
 }

@@ -6,7 +6,6 @@ import { dist } from './constants'
 /* Windranger, Anti-Mage, Riki. Numbers follow the current Dota 2 wiki. */
 
 const adiff = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)))
-const clampMap = (v: number) => Math.max(40, Math.min(9560, v))
 const lowest = (us: Unit[]) => us.slice().sort((a, b) => a.hp - b.hp)[0]
 
 /* -------------------------------------------------------------- WINDRANGER */
@@ -33,7 +32,7 @@ const SHACKLESHOT: AbilityDef = {
     }
     const full = L([1.6, 2.1, 2.6, 3.1], l)
     w.interrupt(tg)
-    w.fx({ k: 'line', x1: c.x, y1: c.y, x2: tg.x, y2: tg.y, dur: 0.25, color: '#b8f090', width: 6 })
+    w.vfx('beam', { x: c.x, y: c.y, x2: tg.x, y2: tg.y, dur: 0.25, color: '#b8f090', width: 8.4 })
     if (sec) {
       w.interrupt(sec)
       w.addBuff(tg, { id: 'shackle', expires: w.time + full, stun: true, src: c, color: '#8ad06a', label: 'Shackled' })
@@ -135,7 +134,7 @@ const FOCUS_FIRE: AbilityDef = {
     st.extra.focus = { target: tg, until: w.time + 20 }
     w.addBuff(c, { id: 'focus_fire', expires: w.time + 20, as: L([350, 425, 500], l), dmgReduce: 0.3, color: '#f0e070', label: 'Focus Fire' })
     w.vfx('windranger_focus', { x: tg.x, y: tg.y, unit: tg, src: c, dur: 20, stop: () => c.dead || !c.hasBuff('focus_fire') })
-    w.fx({ k: 'line', x1: c.x, y1: c.y, x2: tg.x, y2: tg.y, dur: 0.3, color: '#f0e070', width: 5 })
+    w.vfx('beam', { x: c.x, y: c.y, x2: tg.x, y2: tg.y, dur: 0.3, color: '#f0e070', width: 7 })
     if (w.canAttackTarget(c, tg)) c.order = { t: 'attack', target: tg }
   },
   tick(w, c, l, dt, st) {
@@ -199,8 +198,7 @@ const AM_BLINK: AbilityDef = {
     const nd = Math.max(200, Math.min(maxD, d))
     const x0 = c.x
     const y0 = c.y
-    c.x = clampMap(c.x + (dx / d) * nd)
-    c.y = clampMap(c.y + (dy / d) * nd)
+    w.displace(c, c.x + (dx / d) * nd, c.y + (dy / d) * nd)
     c.facing = Math.atan2(dy, dx)
     c.vx = 0
     c.vy = 0
@@ -249,7 +247,7 @@ const COUNTERSPELL: AbilityDef = {
       st.extra.csUntil = 0
     }
     // bots react to an incoming targeted spell instantly
-    if (!c.h || c.h.isPlayer || c.dead || c.hasBuff('am_counterspell')) return
+    if (!c.h || c.h.isHuman || c.dead || c.hasBuff('am_counterspell')) return
     const mana = st.def.mana[l - 1]
     if (!w.abilityReady(c, st) || c.mana < mana || c.isSilenced() || c.isStunned()) return
     for (const e of w.enemyHeroesNear(c, 1300)) {
@@ -345,8 +343,7 @@ const BLINK_STRIKE: AbilityDef = {
     const off = tg.radius + c.radius * 0.9 + 12
     const x0 = c.x
     const y0 = c.y
-    c.x = clampMap(tg.x + Math.cos(back) * off)
-    c.y = clampMap(tg.y + Math.sin(back) * off)
+    w.displace(c, tg.x + Math.cos(back) * off, tg.y + Math.sin(back) * off)
     c.facing = ang(c, tg)
     c.vx = 0
     c.vy = 0
@@ -454,7 +451,7 @@ export const HEROES_G2: HeroDef[] = [
     color: '#8ad06a', color2: '#3a6a2a', roles: ['Carry', 'Disabler', 'Escape'],
     lore: 'A huntress of the Ymir forest who bends the wind itself. Her bow never misses its mark, and she is gone before the echo fades.',
     abilities: [SHACKLESHOT, POWERSHOT, WINDRUN, FOCUS_FIRE],
-    skillOrder: [0, 2, 0, 1, 0, 3, 0, 2, 2, 2, 3, 1, 1, 1, 3, 1],
+    skillOrder: [0, 2, 0, 1, 0, 3, 0, 2, 2, 2, 3, 1, 1, 1, 3],
     buy: ['boots', 'gloves', 'staff', 'blades', 'alacrity', 'blink'],
   },
   {
@@ -464,7 +461,7 @@ export const HEROES_G2: HeroDef[] = [
     color: '#4a5ab8', color2: '#1e1a4a', roles: ['Carry', 'Escape', 'Nuker'],
     lore: 'A monk who turned the gentle arts of his order against all magic after the Dead Gods destroyed his home. Mana is his prey.',
     abilities: [MANA_BREAK, AM_BLINK, COUNTERSPELL, MANA_VOID],
-    skillOrder: [0, 1, 0, 2, 0, 3, 0, 1, 1, 1, 3, 2, 2, 2, 3, 2],
+    skillOrder: [0, 1, 0, 2, 0, 3, 0, 1, 1, 1, 3, 2, 2, 2, 3],
     buy: ['boots', 'gloves', 'blades', 'broadsword', 'alacrity', 'chainmail'],
   },
   {
@@ -474,7 +471,7 @@ export const HEROES_G2: HeroDef[] = [
     color: '#6a5aa8', color2: '#241a4a', roles: ['Carry', 'Escape', 'Disabler'],
     lore: 'A prince of the Slithice who survived the night of his betrayal by vanishing into the shadows. He strikes from behind and is gone.',
     abilities: [SMOKE_SCREEN, BLINK_STRIKE, TRICKS, CLOAK_AND_DAGGER],
-    skillOrder: [1, 0, 1, 2, 1, 3, 1, 2, 2, 2, 3, 0, 0, 0, 3, 0],
+    skillOrder: [1, 0, 1, 2, 1, 3, 1, 2, 2, 2, 3, 0, 0, 0, 3],
     buy: ['boots', 'gloves', 'blades', 'broadsword', 'chainmail', 'alacrity'],
   },
 ]

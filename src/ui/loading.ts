@@ -1,5 +1,7 @@
 import { HEROES } from '../sim/heroes'
+import { LANE_NAME, type Lane } from '../sim/constants'
 import { portraitStyle } from './hud'
+import { esc } from './html'
 
 export interface LoadSeat {
   team: number
@@ -20,7 +22,6 @@ const TIPS = [
   'Destroy the towers in a lane to unlock the next ones — then the Ancient.',
   'Hold Tab to see everyone’s kills, items and net worth.',
 ]
-const LANE: Record<string, string> = { top: 'Top', mid: 'Mid', bot: 'Bottom' }
 
 export interface Loader {
   set(progress: number, text: string): void
@@ -35,8 +36,8 @@ export function showLoading(root: HTMLElement, seats: LoadSeat[]): Loader {
     const def = HEROES.find((h) => h.id === s.hero)
     return `<div class="lcard ${s.team === 0 ? 'rad' : 'dire'} ${s.you ? 'you' : ''}" style="--d:${0.15 + i * 0.12}s">
       <div class="lp" style="${def ? portraitStyle(def) : ''}"></div>
-      <div class="lt"><b>${def ? def.name : '?'}</b><small>${s.human ? '★ ' : ''}${s.name}</small></div>
-      <div class="ll">${LANE[s.lane] || ''}</div></div>`
+      <div class="lt"><b>${def ? def.name : '?'}</b><small>${s.human ? '★ ' : ''}${esc(s.name)}</small></div>
+      <div class="ll">${LANE_NAME[s.lane as Lane] || ''}</div></div>`
   }
   const rad = seats.filter((s) => s.team === 0).map(card).join('')
   const dire = seats.filter((s) => s.team === 1).map(card).join('')

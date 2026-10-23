@@ -1,11 +1,10 @@
 import * as THREE from 'three'
 import type { CustomVfx, Vfx, VfxEvt } from './vfx'
+import { PI, P, later } from './vfxkit'
 
 /** Hero-specific visual effects (g2: Windranger, Anti-Mage, Riki). Key = effect name used with `w.vfx(name, opts)`. */
 
 type PosOf = ((u: { x: number; y: number }) => THREE.Vector3 | null) | undefined
-const PI = Math.PI
-const P = (x: number, y: number, h = 0) => new THREE.Vector3(x, h, y)
 type U = { x: number; y: number; dead?: boolean }
 const UP = new THREE.Vector3(0, 1, 0)
 
@@ -50,20 +49,6 @@ function run(v: Vfx, obj: THREE.Object3D, dur: number, step: (k: number, dt: num
   })
 }
 
-function later(v: Vfx, delay: number, fn: () => void) {
-  let t = 0
-  v.live.push({
-    update: (dt) => {
-      t += dt
-      if (t >= delay) {
-        fn()
-        return false
-      }
-      return true
-    },
-    dispose: () => {},
-  })
-}
 
 const fadeEnds = (k: number, a = 0.12, b = 0.2) => Math.min(1, k / a, (1 - k) / b)
 
@@ -396,7 +381,6 @@ export const VFX_G2: Record<string, CustomVfx> = {
       flat.scale.setScalar(1 + Math.max(0, 1 - tm * 4) * 1.5 + Math.sin(tm * 8) * 0.04)
       pip.position.y = 95 + Math.sin(tm * 4) * 4
       pip.scale.setScalar(1 + Math.sin(tm * 10) * 0.3)
-      void k
     })
     // lock-on stinger on the target
     v.emit({ pos: upos(posOf, t, 90), color: '#ff5050', color2: '#ffb0b0', burst: 16, shape: 'sphere', radius: 6, speed: [100, 240], size: [14, 28], life: [0.2, 0.5] })
@@ -636,7 +620,6 @@ export const VFX_G2: Record<string, CustomVfx> = {
         q.z += Math.sin(a) * 40
         ghost(v, q, '#a070ff', 0.28, a + PI, 0.9)
       }
-      void k
     })
   },
 

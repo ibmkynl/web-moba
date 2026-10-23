@@ -1,16 +1,15 @@
 import type { AbilityDef, HeroDef, Unit } from './entities'
 import type { World } from './world'
-import { dist, MAP } from './constants'
+import { dist } from './constants'
 import { L, ang, same, heroesNear } from './abkit'
 
 /** New heroes (g1): Sven, Juggernaut, Legion Commander. Numbers follow the current Dota 2 wiki. */
 
-const clampMap = (v: number) => Math.max(40, Math.min(MAP - 40, v))
 const armorRed = (w: World, t: Unit) => 1 - w.armorReduction(t.st.armor)
 
 /* ------------------------------------------------------------------- SVEN */
 
-export const STORM_HAMMER: AbilityDef = {
+const STORM_HAMMER: AbilityDef = {
   id: 'sven_storm_hammer', name: 'Storm Hammer', glyph: '⚡', color: '#5aa8ff',
   behavior: 'unit', target: 'enemy', range: same(4, 600), castPoint: 0.2, cd: [21, 18, 15, 12], mana: [110, 115, 120, 125], maxLevel: 4,
   desc: 'Sven hurls his magical gauntlet at an enemy unit. On impact it damages and stuns all enemies in a small area around the target.',
@@ -43,7 +42,7 @@ export const STORM_HAMMER: AbilityDef = {
 /** Extra God's Strength damage currently active on a unit (percent of base damage). */
 const gsBonus = (u: Unit, lvl: number) => (u.hasBuff('gods_strength') ? (u.base.dmg + u.st.str) * L([1, 1.4, 1.8], lvl) : 0)
 
-export const GREAT_CLEAVE: AbilityDef = {
+const GREAT_CLEAVE: AbilityDef = {
   id: 'sven_great_cleave', name: 'Great Cleave', glyph: '⚔', color: '#c8c8d8',
   behavior: 'passive', castPoint: 0, cd: same(4, 0), mana: same(4, 0), maxLevel: 4,
   desc: 'Sven strikes with great force, cleaving all enemies in a wide arc in front of the target. Also grants bonus Strength.',
@@ -76,7 +75,7 @@ export const GREAT_CLEAVE: AbilityDef = {
   },
 }
 
-export const WARCRY: AbilityDef = {
+const WARCRY: AbilityDef = {
   id: 'sven_warcry', name: 'Warcry', glyph: '⚑', color: '#e0a040',
   behavior: 'none', castPoint: 0, cd: [35, 30, 25, 20], mana: [30, 35, 40, 45], maxLevel: 4,
   desc: 'Sven rallies himself and nearby allied heroes, increasing their armor and movement speed for 10 seconds.',
@@ -97,7 +96,7 @@ export const WARCRY: AbilityDef = {
   },
 }
 
-export const GODS_STRENGTH: AbilityDef = {
+const GODS_STRENGTH: AbilityDef = {
   id: 'sven_gods_strength', name: "God's Strength", glyph: '☀', color: '#ff8a3a',
   behavior: 'none', castPoint: 0.3, cd: [110, 105, 100], mana: [100, 150, 200], maxLevel: 3, ult: true,
   desc: 'Sven channels his rogue strength, gaining a large bonus to attack damage for 35 seconds.',
@@ -118,7 +117,7 @@ export const GODS_STRENGTH: AbilityDef = {
 
 /* ------------------------------------------------------------ JUGGERNAUT */
 
-export const BLADE_FURY: AbilityDef = {
+const BLADE_FURY: AbilityDef = {
   id: 'jugg_blade_fury', name: 'Blade Fury', glyph: '✺', color: '#e8c040',
   behavior: 'none', castPoint: 0, cd: [42, 34, 26, 18], mana: [120, 110, 100, 90], maxLevel: 4,
   desc: 'Juggernaut becomes a whirling blade storm, immune to magic and dealing damage each second to nearby enemies. He cannot attack while spinning.',
@@ -147,7 +146,7 @@ export const BLADE_FURY: AbilityDef = {
   },
 }
 
-export const HEALING_WARD: AbilityDef = {
+const HEALING_WARD: AbilityDef = {
   id: 'jugg_healing_ward', name: 'Healing Ward', glyph: '✚', color: '#6ae08a',
   behavior: 'point', range: same(4, 350), castPoint: 0.3, cd: same(4, 60), mana: [140, 130, 120, 110], maxLevel: 4,
   desc: 'Summons a healing ward that follows Juggernaut and heals all nearby allied units based on their maximum health. It dies to a single attack.',
@@ -158,11 +157,10 @@ export const HEALING_WARD: AbilityDef = {
     const ward = w.spawnSummon({
       team: c.team, owner: c, sub: 'jugg_healing_ward', name: 'Healing Ward', x: t.x, y: t.y, hp: 1, radius: 28, life: 25, color: '#6ae08a',
       tick: (ww, u, dt) => {
-        const o = u.extra.owner as Unit
+        const o = u.summoner
         if (o && !o.dead && dist(u, o) > 160) {
           const a = ang(u, o)
-          u.x += Math.cos(a) * 325 * dt
-          u.y += Math.sin(a) * 325 * dt
+          ww.displace(u, u.x + Math.cos(a) * 325 * dt, u.y + Math.sin(a) * 325 * dt)
           u.facing = a
         }
         for (const e of ww.units) {
@@ -192,7 +190,7 @@ export const HEALING_WARD: AbilityDef = {
   },
 }
 
-export const BLADE_DANCE: AbilityDef = {
+const BLADE_DANCE: AbilityDef = {
   id: 'jugg_blade_dance', name: 'Blade Dance', glyph: '✦', color: '#e87a3a',
   behavior: 'passive', castPoint: 0, cd: same(4, 0), mana: same(4, 0), maxLevel: 4,
   desc: 'Gives Juggernaut a chance to deal critical damage on each attack. Critical strikes also heal him.',
@@ -207,7 +205,7 @@ export const BLADE_DANCE: AbilityDef = {
   },
 }
 
-export const OMNISLASH: AbilityDef = {
+const OMNISLASH: AbilityDef = {
   id: 'jugg_omnislash', name: 'Omnislash', glyph: '⚔', color: '#ff5a3a',
   behavior: 'unit', target: 'enemy', range: same(3, 350), castPoint: 0.3, cd: same(3, 120), mana: [200, 275, 350], maxLevel: 3, ult: true,
   desc: 'Juggernaut leaps to an enemy and slashes it and other nearby enemies at an increased attack rate, with bonus damage. He is invulnerable for the duration.',
@@ -219,8 +217,7 @@ export const OMNISLASH: AbilityDef = {
     const bonus = L([40, 45, 50], l)
     const hop = (e: Unit) => {
       const a = ang(e, c) || 0
-      c.x = clampMap(e.x + Math.cos(a) * (e.radius + c.radius) * 0.8)
-      c.y = clampMap(e.y + Math.sin(a) * (e.radius + c.radius) * 0.8)
+      w.displace(c, e.x + Math.cos(a) * (e.radius + c.radius) * 0.8, e.y + Math.sin(a) * (e.radius + c.radius) * 0.8)
       c.facing = ang(c, e)
     }
     const from0 = { x: c.x, y: c.y }
@@ -265,7 +262,7 @@ export const OMNISLASH: AbilityDef = {
 
 /* ------------------------------------------------------- LEGION COMMANDER */
 
-export const OVERWHELMING_ODDS: AbilityDef = {
+const OVERWHELMING_ODDS: AbilityDef = {
   id: 'legion_odds', name: 'Overwhelming Odds', glyph: '⚑', color: '#e04a3a',
   behavior: 'none', castPoint: 0.3, cd: same(4, 15), mana: [100, 110, 120, 130], maxLevel: 4,
   desc: 'Turns the enemies\' numbers against them, dealing damage per enemy hero and creep nearby and granting Legion Commander bonus attack speed. Hurts summoned units for a share of their current health.',
@@ -296,7 +293,7 @@ export const OVERWHELMING_ODDS: AbilityDef = {
 
 const DEBUFF_KEYS = ['stun', 'slow', 'silence', 'root', 'disarm', 'taunt', 'dot', 'dmgReduce', 'hunger'] as const
 
-export const PRESS_THE_ATTACK: AbilityDef = {
+const PRESS_THE_ATTACK: AbilityDef = {
   id: 'legion_press', name: 'Press the Attack', glyph: '✚', color: '#f0c050',
   behavior: 'unit', target: 'any', range: same(4, 700), castPoint: 0.2, cd: [16, 15, 14, 13], mana: same(4, 110), maxLevel: 4,
   desc: 'Removes debuffs and disables from a friendly unit (or Legion Commander herself) and grants bonus movement speed and health regeneration for 5 seconds.',
@@ -326,7 +323,7 @@ export const PRESS_THE_ATTACK: AbilityDef = {
   },
 }
 
-export const MOMENT_OF_COURAGE: AbilityDef = {
+const MOMENT_OF_COURAGE: AbilityDef = {
   id: 'legion_courage', name: 'Moment of Courage', glyph: '✦', color: '#d8d8f0',
   behavior: 'passive', castPoint: 0, cd: same(4, 0), mana: same(4, 0), maxLevel: 4,
   desc: 'When attacked, Legion Commander has a chance to immediately counterattack with bonus attack speed and lifesteal.',
@@ -349,7 +346,7 @@ export const MOMENT_OF_COURAGE: AbilityDef = {
   },
 }
 
-export const DUEL: AbilityDef = {
+const DUEL: AbilityDef = {
   id: 'legion_duel', name: 'Duel', glyph: '⚔', color: '#ffb040',
   behavior: 'unit', target: 'enemy', heroOnly: true, range: [200, 250, 300], castPoint: 0.3, cd: [60, 55, 50], mana: same(3, 75), maxLevel: 3, ult: true,
   desc: 'Legion Commander and the target enemy hero are forced to attack each other and cannot use abilities. The winner of the Duel gains permanent bonus damage (it carries on while Duel is learned).',
@@ -401,7 +398,7 @@ export const HEROES_G1: HeroDef[] = [
     color: '#4a6ea8', color2: '#8a2a2a', roles: ['Carry', 'Disabler', 'Initiator', 'Durable'],
     lore: 'Bastard son of a Vigil Knight, Sven is an outcast who wields a stolen blade and cleaves through any who stand between him and honor.',
     abilities: [STORM_HAMMER, GREAT_CLEAVE, WARCRY, GODS_STRENGTH],
-    skillOrder: [0, 1, 0, 2, 0, 3, 0, 1, 1, 1, 3, 2, 2, 2, 2, 3],
+    skillOrder: [0, 1, 0, 2, 0, 3, 0, 1, 1, 1, 3, 2, 2, 2, 3],
     buy: ['boots', 'broadsword', 'gloves', 'chainmail', 'vitality', 'blink'],
   },
   {
@@ -411,7 +408,7 @@ export const HEROES_G1: HeroDef[] = [
     color: '#d89a2a', color2: '#7a3a1a', roles: ['Carry', 'Pusher', 'Escape'],
     lore: 'Yurnero the Juggernaut, last of his blademasters from the Isle of Masks, hides his face behind a mask and lets only his katana speak.',
     abilities: [BLADE_FURY, HEALING_WARD, BLADE_DANCE, OMNISLASH],
-    skillOrder: [0, 2, 0, 1, 0, 3, 0, 2, 2, 2, 3, 1, 1, 1, 1, 3],
+    skillOrder: [0, 2, 0, 1, 0, 3, 0, 2, 2, 2, 3, 1, 1, 1, 3],
     buy: ['boots', 'gloves', 'blades', 'alacrity', 'broadsword', 'chainmail'],
   },
   {
@@ -421,7 +418,7 @@ export const HEROES_G1: HeroDef[] = [
     color: '#c8382a', color2: '#e0b040', roles: ['Carry', 'Disabler', 'Initiator', 'Durable'],
     lore: 'Tresdin of the Bronze Legion fights at the head of an army of one, and nobody who challenges her walks away from the duel.',
     abilities: [OVERWHELMING_ODDS, PRESS_THE_ATTACK, MOMENT_OF_COURAGE, DUEL],
-    skillOrder: [1, 0, 2, 1, 2, 3, 2, 1, 1, 2, 3, 0, 0, 0, 0, 3],
+    skillOrder: [1, 0, 2, 1, 2, 3, 2, 1, 1, 2, 3, 0, 0, 0, 3],
     buy: ['boots', 'gloves', 'broadsword', 'chainmail', 'blades', 'vitality'],
   },
 ]
