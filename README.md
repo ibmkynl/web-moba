@@ -171,6 +171,8 @@ Open the link, choose **Single Player** (you + 4 bots vs 5 bots) or **Multiplaye
 | `npm run dev` | Vite dev server with hot reload on http://localhost:5173 (single player; the multiplayer server is still `npm run server`) |
 | `npm run build` | Typecheck and build the client |
 | `npm run typecheck` | `tsc --noEmit` |
+| `npm run test:sim` | Headless gameplay tests (see [Development](#development)); exits with code 1 when a check fails |
+| `npm run bench:sim` | Simulation performance benchmark (`bench/`) |
 
 Change the port with an environment variable: `PORT=9000 npm run host`.
 
@@ -249,7 +251,7 @@ Choose a hero and a lane in the Dota-style hero picker. Heroes are grouped by St
 | **Z X C V B N** | Use inventory slots 1–6 |
 | **T** | Teleport: pick a friendly tower or the Ancient (**T** twice = Ancient). Uses a scroll from the separate scroll stash |
 | **S** | Open the shop (at your fountain) |
-| **Right click** an item in the shop | **Buy** it (left-click only shows the tooltip) |
+| **Right click** an item in the shop | **Buy** it (left-click only shows the tooltip; the mouse wheel scrolls the list when it does not fit) |
 | **Right click** an inventory item | Sell it (at the fountain) |
 | **1** / **L** | Center camera / lock or free the camera |
 | **Alt + click** | **Ping** (see [Pings](#pings)): on the ground, an enemy, an ally, or a building. **Alt + click on the minimap** pings that spot |
@@ -273,7 +275,7 @@ There is no zoom (the wheel is disabled on purpose).
 - **High-ground bases:** each base is surrounded by rock cliffs and is entered only through three wide lane ramps. Tier-3 towers stand beside the ramps. The **fountain** deals 200 pure damage four times a second to intruders.
 - **Runes:** power runes in the river every 2 minutes and bounty runes in the jungle every 3 minutes.
 - **Wards** (vision for 3 minutes; bots and enemies place them too).
-- **Collision and pathfinding:** trees, rocks and cliffs block movement. Units path around them (A* on a grid) and through the ramps. Towers and other buildings never move.
+- **Collision and pathfinding:** trees, rocks and cliffs block movement. Units path around them (A* on a grid) and through the ramps. Towers, the ancient and other buildings never move and count as obstacles too, so units walk around them instead of through them.
 - **Courier ("Hop")**, one per hero: a bird on a red e-scooter. Items bought away from the fountain wait in your stash; Hop loads everything at the fountain at once and drives it to you. A new purchase sends Hop back to the fountain first, like Dota.
 - **Teleport scrolls** live in their own stash (max 5). Channel for 3 seconds with a progress bar and animation; moving, being stunned or **taking damage from an enemy cancels it** (the scroll is still used).
 - **Fog of war** per team; the server never sends hidden enemies to a client.
@@ -396,6 +398,8 @@ src/net/               Client, command API, snapshot (de)serialisation and inter
 src/render/            Three.js renderer, terrain, models (heroes, creeps, structures), VFX, portraits, minimap
 src/ui/                HUD, lobbies, loading screen, item icons
 src/audio.ts          Synthesized sound
+tests/sim-tests.ts    Headless gameplay tests (npm run test:sim)
+bench/                Simulation and render benchmarks
 ```
 
 Single player runs the same simulation locally; multiplayer runs it on the server and the browser shows an interpolated replica of the snapshots.
@@ -409,11 +413,12 @@ Technology: TypeScript, Vite, three.js, three.quarks (particles), `ws` (WebSocke
 ```bash
 npm install
 npm run typecheck      # type check
+npm run test:sim       # headless gameplay tests (a few minutes: includes 25-minute bot matches)
 npm run dev            # hot-reload client at http://localhost:5173 (single player)
 npm run host           # production build + server on :8080 (multiplayer)
 ```
 
-After changing client code, run `npx vite build` (or `npm run host`) so the server serves the new build. The simulation is deterministic enough to run headless in Node for balance tests, for example with a short `tsx` script that creates a `World` and ticks it.
+After changing client code, run `npx vite build` (or `npm run host`) so the server serves the new build. The simulation is deterministic enough to run headless in Node for balance tests, for example with a short `tsx` script that creates a `World` and ticks it. `npm run test:sim` does exactly that: it checks Stop, lifesteal, skill vision, wards, tower and assist rewards, pings and the bots' reaction, item recommendations, pathing around every tower, the multiplayer snapshot round trip and full bot matches (`npx tsx tests/sim-tests.ts <name>` runs one group, e.g. `pings` or `nav`).
 
 ---
 
