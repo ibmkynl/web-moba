@@ -41,8 +41,35 @@ for (const gs of GATES) for (const g of gs) {
   }
 }
 
+/**
+ * Buildings (towers, ancients) are obstacles too: units path around them instead of being shoved through. They are kept in their
+ * own layer because they disappear when destroyed.
+ */
+const structCells = new Uint8Array(N * N)
+let structKey = ''
+export function setNavStructures(list: { x: number; y: number; r: number }[]) {
+  const key = list.map((s) => `${Math.round(s.x)},${Math.round(s.y)},${Math.round(s.r)}`).join('|')
+  if (key === structKey) return
+  structKey = key
+  structCells.fill(0)
+  for (const s of list) {
+    const R = s.r + CLEAR
+    const x0 = Math.max(0, Math.floor((s.x - R) / CELL))
+    const x1 = Math.min(N - 1, Math.floor((s.x + R) / CELL))
+    const y0 = Math.max(0, Math.floor((s.y - R) / CELL))
+    const y1 = Math.min(N - 1, Math.floor((s.y + R) / CELL))
+    for (let gy = y0; gy <= y1; gy++) {
+      for (let gx = x0; gx <= x1; gx++) {
+        const cx = gx * CELL + CELL / 2
+        const cy = gy * CELL + CELL / 2
+        if ((cx - s.x) ** 2 + (cy - s.y) ** 2 <= R * R) structCells[gy * N + gx] = 1
+      }
+    }
+  }
+}
+
 const cellOf = (p: Pt) => ({ gx: Math.max(0, Math.min(N - 1, Math.floor(p.x / CELL))), gy: Math.max(0, Math.min(N - 1, Math.floor(p.y / CELL))) })
-const isBlocked = (gx: number, gy: number) => gx < 0 || gy < 0 || gx >= N || gy >= N || blocked[gy * N + gx] === 1
+const isBlocked = (gx: number, gy: number) => gx < 0 || gy < 0 || gx >= N || gy >= N || blocked[gy * N + gx] === 1 || structCells[gy * N + gx] === 1
 
 /** True when the straight segment a-b crosses no blocked cell. */
 function lineClear(a: Pt, b: Pt): boolean {

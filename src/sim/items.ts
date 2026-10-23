@@ -27,6 +27,7 @@ export const ITEMS: ItemDef[] = [
   { id: 'gloves', name: 'Gloves of Haste', cost: 450, glyph: '✋', color: '#d8d05a', cat: 'equipment', stats: { as: 20 }, desc: '+20 attack speed.' },
   { id: 'blades', name: 'Blades of Attack', cost: 450, glyph: '⚔', color: '#c8c8d8', cat: 'equipment', stats: { dmg: 9 }, desc: '+9 damage.' },
   { id: 'broadsword', name: 'Broadsword', cost: 1000, glyph: '🗡', color: '#d89a5a', cat: 'equipment', stats: { dmg: 15 }, desc: '+15 damage.' },
+  { id: 'morbid', name: 'Morbid Mask', cost: 900, glyph: '☠', color: '#b8324a', cat: 'equipment', stats: { dmg: 6, lifesteal: 0.18 }, desc: '+6 damage and 18% lifesteal: you heal for a share of the physical damage your attacks deal to enemy heroes and creeps (60% against creeps). Does not work on buildings or spell damage.' },
   { id: 'chainmail', name: 'Chainmail', cost: 550, glyph: '▦', color: '#9aa4b4', cat: 'equipment', stats: { armor: 4 }, desc: '+4 armor.' },
   { id: 'ogre', name: 'Ogre Axe', cost: 1000, glyph: 'S', color: '#e0623a', cat: 'attribute', stats: { str: 10 }, desc: '+10 strength.' },
   { id: 'alacrity', name: 'Blade of Alacrity', cost: 1000, glyph: 'A', color: '#5ae07a', cat: 'attribute', stats: { agi: 10 }, desc: '+10 agility.' },

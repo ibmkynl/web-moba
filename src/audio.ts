@@ -135,6 +135,13 @@ export class Sfx {
         this.noise(0.9, 0.9 * v, 600)
         this.tone(90, 35, 0.9, 'sawtooth', 0.35 * v)
         break
+      case 'ping': {
+        // two-note chime; warning pings (enemy / attack) are lower and sharper
+        const f = tag === 'enemy' || tag === 'attack' ? 700 : tag === 'defend' ? 520 : tag === 'help' ? 620 : 880
+        this.tone(f, f, 0.1, 'triangle', 0.22 * v)
+        this.tone(f * 1.5, f * 1.5, 0.18, 'sine', 0.2 * v, 0.09)
+        break
+      }
       case 'ward':
         this.tone(660, 990, 0.12, 'sine', 0.18 * v)
         this.tone(990, 1320, 0.16, 'sine', 0.14 * v, 0.1)

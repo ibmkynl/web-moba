@@ -1051,6 +1051,7 @@ const ZEUS_BOLT: AbilityDef = {
     w.vfx('zeus_bolt', { x: bx, y: by, r: 325, hit: !!tg })
     if (tg) {
       tg.revealUntil = Math.max(tg.revealUntil, w.time + 5)
+      w.grantVision(c.team, tg.x, tg.y, 450, 5, tg)
       w.interrupt(tg)
       w.damage(c, tg, L(BOLT_DMG, l), 'magical', { spell: true, abilityId: 'zuus_lightning_bolt' })
       w.addBuff(tg, { id: 'zeus_bolt_stun', expires: w.time + 0.35, stun: true, src: c, color: '#e8f0ff', label: 'Lightning Bolt' })
@@ -1096,6 +1097,7 @@ const ZEUS_WRATH: AbilityDef = {
       w.after(0.3, () => {
         if (h.dead || h.isInvulnerable()) return
         h.revealUntil = Math.max(h.revealUntil, w.time + 3)
+        w.grantVision(c.team, h.x, h.y, 450, 3, h)
         w.vfx('zeus_wrath_hit', { x: h.x, y: h.y, unit: h })
         w.damage(c, h, L(TW_DMG, l) + h.st.maxHp * L(TW_PCT, l), 'magical', { spell: true, abilityId: 'zuus_thundergods_wrath' })
       })

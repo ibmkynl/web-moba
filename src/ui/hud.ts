@@ -2,6 +2,7 @@ import type { Game } from '../game'
 import { MAP, MAX_LEVEL, TEAM_NAME, XP_TABLE } from '../sim/constants'
 import type { AbilityState, HeroDef, Unit } from '../sim/entities'
 import { ITEMS } from '../sim/items'
+import { recommendItem, roomFor } from '../sim/recommend'
 import { itemIcon } from './itemicons'
 import { esc } from './html'
 import { QUALITIES } from '../render/renderer3d'
@@ -145,6 +146,11 @@ export class Hud {
 
         </div>
         <div class="invframe frame ui">
+          <div class="recrow" id="recrow">
+            <button class="recicon" id="rec-icon" title="Recommended item"></button>
+            <button class="recbuy" id="rec-buy" title="Buy the recommended item"><span class="rn">Recommended</span><b class="rp"></b></button>
+            <label class="recauto" title="Auto purchase: buy the recommended item as soon as you have enough gold"><input type="checkbox" id="rec-auto"><span>Auto</span></label>
+          </div>
           <div class="tpslot" id="tpslot" title="Teleportation Scroll (T): channel 3s to a friendly tower. Max 5."><span class="glyph"></span><div class="cd"></div><span class="chg">0</span><span class="key">T</span></div>
           <div class="inv">${[0, 1, 2, 3, 4, 5]
             .map((i) => `<div class="item" data-i="${i}"><span class="glyph"></span><div class="cd"></div><span class="chg"></span><span class="key">${ITEM_KEYS[i]}</span></div>`)
@@ -169,11 +175,12 @@ export class Hud {
         <h3>Controls</h3>
         <div class="cols">
           <div><kbd>Right click</kbd> move / attack / <b>deny</b> allied creep (&lt;50% HP)</div>
-          <div><kbd>A</kbd> + click attack-move &nbsp; <kbd>Space</kbd> stop &nbsp; <kbd>H</kbd> hold</div>
+          <div><kbd>A</kbd> + click attack-move &nbsp; <kbd>Space</kbd> stop (also stops auto-attacking) &nbsp; <kbd>H</kbd> hold</div>
           <div><kbd>Q</kbd><kbd>W</kbd><kbd>E</kbd><kbd>R</kbd><kbd>D</kbd> abilities: press the key, then <b>click</b> the target or spot (<kbd>Esc</kbd>/right-click cancels; <kbd>M</kbd> = quick cast)</div>
           <div><kbd>Alt</kbd>+<kbd>Q/W/E/R</kbd> (or Ctrl) or click <b>+</b> to level up</div>
           <div><kbd>Z X C V B N</kbd> items &nbsp; <kbd>S</kbd> shop (at your fountain)</div>
-          <div><kbd>'</kbd> center camera &nbsp; <kbd>L</kbd> lock/free camera</div>
+          <div><kbd>1</kbd> center camera &nbsp; <kbd>L</kbd> lock/free camera</div>
+          <div><kbd>Alt</kbd> + click <b>ping</b> (enemy, location, building, ally): teammates and bots see it and react</div>
           <div><kbd>Tab</kbd> scoreboard &nbsp; <kbd>P</kbd> pause &nbsp; <kbd>Esc</kbd> cancel</div>
         </div>
         <button id="help-close">Close</button>
@@ -301,7 +308,8 @@ export class Hud {
     this.mm.addEventListener('mousedown', (ev) => {
       ev.stopPropagation()
       const m = mmPos(ev)
-      if (ev.button === 2 || ev.ctrlKey) this.g.minimapOrder(m.x, m.y)
+      if (ev.altKey && ev.button === 0) this.g.minimapPing(m.x, m.y)
+      else if (ev.button === 2 || ev.ctrlKey) this.g.minimapOrder(m.x, m.y)
       else {
         this.mmDrag = true
         this.g.camLocked = false
@@ -428,6 +436,7 @@ export class Hud {
 
   closeShop() {
     this.shopOpen = false
+    this.shopHover = ''
     this.e.shop.classList.add('hidden')
     this.hideTip()
   }
@@ -449,9 +458,14 @@ export class Hud {
     const near = w.nearShop(p)
     const pend = w.pendingFor(p).length
     const cats = ['all', 'consumable', 'attribute', 'equipment', 'misc']
-    const key = `${this.shopCat}|${hs.gold}|${near}|${pend}|${hs.items.map((i) => (i ? i.def.id + i.charges : '-')).join(',')}`
-    if (key === this.lastShopKey) return
+    // gold is not part of the key: it changes every second and rebuilding would reset the scroll position and the hover tooltip
+    const key = `${this.shopCat}|${near}|${pend}|${hs.items.map((i) => (i ? i.def.id + i.charges : '-')).join(',')}`
+    if (key === this.lastShopKey) {
+      this.refreshShopGold()
+      return
+    }
     this.lastShopKey = key
+    const scroll = (this.e.shop.querySelector('.grid') as HTMLElement | null)?.scrollTop ?? 0
     this.e.shop.innerHTML = `
       <div class="shop-head"><h3>Shop</h3><span class="shop-gold"><span class="coin"></span>${Math.floor(hs.gold)}</span>
         <button class="x" id="shop-close">✕</button></div>
@@ -486,9 +500,135 @@ export class Hud {
         if (!err && away && id !== 'tp') this.toast(`Hop is bringing ${def.name}`)
         this.lastShopKey = ''
       })
-      el.addEventListener('mouseenter', () => this.showTip(el as HTMLElement, `<div class="tip-ic">${itemIcon(def.id)}</div><h4>${def.name}</h4><p>${def.desc}</p><div class="meta"><span class="gold">${def.cost} gold</span> · right-click to buy</div>`))
-      el.addEventListener('mouseleave', () => this.hideTip())
+      el.addEventListener('mouseenter', () => {
+        this.shopHover = id
+        this.showTip(el as HTMLElement, this.shopTipHtml(id))
+      })
+      el.addEventListener('mouseleave', () => {
+        this.shopHover = ''
+        this.hideTip()
+      })
     })
+    ;(this.e.shop.querySelector('.grid') as HTMLElement).scrollTop = scroll
+    // the grid was rebuilt under the cursor: keep the tooltip of the hovered item
+    if (this.shopHover) {
+      const el = this.e.shop.querySelector(`.sitem[data-id="${this.shopHover}"]`) as HTMLElement | null
+      if (el) this.showTip(el, this.shopTipHtml(this.shopHover))
+      else this.shopHover = ''
+    }
+  }
+
+  /** Update the gold readout and the unaffordable markers without rebuilding the list. */
+  private refreshShopGold() {
+    const gold = Math.floor(this.g.world.player.h!.gold)
+    const g = this.e.shop.querySelector('.shop-gold')
+    if (g) {
+      const txt = String(gold)
+      if (g.lastChild && g.lastChild.textContent !== txt) g.lastChild.textContent = txt
+    }
+    this.e.shop.querySelectorAll('.sitem').forEach((el) => {
+      const def = ITEMS.find((i) => i.id === (el as HTMLElement).dataset.id)
+      if (def) el.classList.toggle('poor', gold < def.cost)
+    })
+  }
+
+  private shopHover = ''
+  /** Tooltip of a shop item: price and how much more gold is still needed (price - your gold). */
+  private shopTipHtml(id: string) {
+    const def = ITEMS.find((i) => i.id === id)!
+    const gold = Math.floor(this.g.world.player.h!.gold)
+    const need = Math.max(0, def.cost - gold)
+    return `<div class="tip-ic">${itemIcon(def.id)}</div><h4>${def.name}</h4><p>${def.desc}</p><div class="meta"><span class="gold">${def.cost} gold</span> · ${
+      need > 0 ? `<span class="need">need <b>${need}</b> more</span>` : '<span class="afford">you can afford it</span>'
+    } · right-click to buy</div>`
+  }
+
+  /* ----------------------------------------------- recommended item */
+
+  private recId = ''
+  private recAuto = false
+  private recNext = 0
+  private recBound = false
+
+  private bindRecommend() {
+    const $ = (s: string) => this.root.querySelector(s) as HTMLElement
+    try {
+      this.recAuto = localStorage.getItem('moba.autobuy') === '1'
+    } catch {
+      this.recAuto = false
+    }
+    const box = $('#rec-auto') as HTMLInputElement
+    box.checked = this.recAuto
+    box.addEventListener('change', () => {
+      this.recAuto = box.checked
+      try {
+        localStorage.setItem('moba.autobuy', this.recAuto ? '1' : '0')
+      } catch {}
+      this.toast(this.recAuto ? 'Auto purchase ON: the recommended item is bought as soon as you can afford it' : 'Auto purchase OFF')
+    })
+    const buy = () => {
+      const w = this.g.world
+      const rec = recommendItem(w, w.player)
+      if (!rec) return
+      const err = this.g.api.buy(rec.id)
+      if (err) {
+        this.toast(err)
+        this.g.sfx.play('error')
+      } else {
+        this.g.sfx.play('gold')
+        if (!w.nearShop(w.player) && rec.id !== 'tp') this.toast(`Hop is bringing ${rec.name}`)
+      }
+      this.lastShopKey = ''
+    }
+    $('#rec-buy').addEventListener('click', buy)
+    $('#rec-icon').addEventListener('click', buy)
+    for (const id of ['#rec-icon', '#rec-buy']) {
+      const el = $(id)
+      el.addEventListener('mouseenter', () => {
+        const w = this.g.world
+        const rec = recommendItem(w, w.player)
+        if (rec) this.showTip(el, this.shopTipHtml(rec.id).replace('right-click to buy', 'click to buy'))
+      })
+      el.addEventListener('mouseleave', () => this.hideTip())
+    }
+    this.recBound = true
+  }
+
+  private updateRecommend() {
+    if (!this.recBound) this.bindRecommend()
+    const w = this.g.world
+    const p = w.player
+    const hs = p.h!
+    const rec = p.dead ? null : recommendItem(w, p)
+    const icon = this.root.querySelector('#rec-icon') as HTMLElement
+    const btn = this.root.querySelector('#rec-buy') as HTMLButtonElement
+    const id = rec ? rec.id : ''
+    if (id !== this.recId) {
+      this.recId = id
+      icon.innerHTML = rec ? itemIcon(rec.id) : ''
+      icon.style.background = rec ? `radial-gradient(circle at 50% 40%, ${rec.color}55, #0e1014 80%)` : ''
+      btn.querySelector('.rn')!.textContent = rec ? rec.name : 'Nothing to buy'
+    }
+    if (!rec) {
+      btn.querySelector('.rp')!.textContent = ''
+      btn.disabled = true
+      btn.classList.remove('poor')
+      return
+    }
+    const need = Math.max(0, rec.cost - Math.floor(hs.gold))
+    btn.disabled = false
+    btn.classList.toggle('poor', need > 0)
+    btn.querySelector('.rp')!.textContent = need > 0 ? `${rec.cost}g · need ${need}` : `Buy ${rec.cost}g`
+    // auto purchase
+    if (this.recAuto && need === 0 && w.time >= this.recNext && roomFor(w, p, rec)) {
+      this.recNext = w.time + 0.6
+      const err = this.g.api.buy(rec.id)
+      if (!err) {
+        this.g.sfx.play('gold')
+        this.toast(`Auto-bought ${rec.name}`)
+        this.lastShopKey = ''
+      } else this.recNext = w.time + 2
+    }
   }
 
   /* -------------------------------------------------------- scoreboard */
@@ -526,7 +666,7 @@ export class Hud {
       const hs = w.heroes.filter((h) => h.team === team)
       const totalWorth = hs.reduce((n, h) => n + worth(h), 0)
       const avg = hs.reduce((n, h) => n + h.h!.level, 0) / Math.max(1, hs.length)
-      return `<table class="st t${team}"><colgroup><col style="width:232px"/><col style="width:44px"/><col style="width:112px"/><col style="width:84px"/><col style="width:70px"/><col style="width:62px"/><col style="width:62px"/><col style="width:82px"/><col style="width:88px"/><col style="width:232px"/><col style="width:68px"/></colgroup><thead><tr>
+      return `<table class="st t${team}"><colgroup><col style="width:20%"/><col style="width:4%"/><col style="width:10%"/><col style="width:7.5%"/><col style="width:6.5%"/><col style="width:5.5%"/><col style="width:5.5%"/><col style="width:7%"/><col style="width:7.5%"/><col style="width:20%"/><col style="width:6.5%"/></colgroup><thead><tr>
         <th>${TEAM_NAME[team]} <small>${w.kills[team]} kills · avg lvl ${avg.toFixed(1)} · ${fmtK(totalWorth)} net worth</small></th>
         <th title="Level">Lv</th><th title="Kills / Deaths / Assists">K / D / A</th><th title="Last hits / denies">LH / DN</th><th title="Net worth (gold + items)">NW</th>
         <th title="Gold earned per minute">GPM</th><th title="Experience per minute">XPM</th><th title="Hero damage dealt">Hero dmg</th><th title="Damage dealt to buildings">Tower dmg</th><th>Items</th><th>Ping</th></tr></thead>
@@ -558,7 +698,7 @@ export class Hud {
     const hpTxt = `${Math.ceil(u.hp)} / ${Math.round(s.maxHp)}`
     const html = `<div class="ui-name" style="color:${col}">${name}</div>
       <div class="ui-bar"><i style="width:${(u.hp / s.maxHp) * 100}%;background:${mine ? '#3fae3a' : '#c8402e'}"></i><span>${hpTxt}</span></div>
-      <div class="ui-st"><span>Dmg <b>${Math.round(s.dmg)}</b></span><span>Armor <b>${fmt(s.armor)}</b></span><span>Move <b>${Math.round(s.ms)}</b></span>${u.locked ? '<span class="lk">Invulnerable</span>' : ''}</div>
+      <div class="ui-st"><span>Dmg <b>${Math.round(s.dmg)}</b></span><span>Armor <b>${fmt(s.armor)}</b></span><span>Move <b>${Math.round(s.ms)}</b></span>${u.locked ? '<span class="lk">Protected: destroy the building in front first</span>' : u.isInvulnerable() && u.kind !== 'courier' ? '<span class="lk">Invulnerable</span>' : ''}</div>
       ${hint ? `<div class="ui-hint">${hint}</div>` : ''}`
     if (html !== this.unitInfoHtml) {
       this.unitInfoHtml = html
@@ -767,6 +907,11 @@ export class Hud {
       this.e.feed.innerHTML = lines.map((f) => `<div class="fl t${f.team}">${esc(f.text)}</div>`).join('')
     }
 
+    this.updateRecommend()
+    if (this.shopOpen && this.shopHover) {
+      const el = this.e.shop.querySelector(`.sitem[data-id="${this.shopHover}"]`) as HTMLElement | null
+      if (el) this.showTip(el, this.shopTipHtml(this.shopHover))
+    }
     this.updateUnitInfo()
 
     // camera / quick buttons state

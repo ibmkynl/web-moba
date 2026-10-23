@@ -8,7 +8,7 @@ import { HERO_BY_ID } from './heroes'
 import { ITEM_BY_ID } from './items'
 import type { ItemDef } from './entities'
 import { aiThink } from './ai'
-import { freePoint, navWaypoint } from './nav'
+import { freePoint, navWaypoint, setNavStructures } from './nav'
 import { pushOutOfSolids } from './obstacles'
 import { TeamBrain } from './team'
 
@@ -128,6 +128,50 @@ export const RUNE_INFO: Record<RuneKind, { name: string; color: string; dur: num
   bounty: { name: 'Bounty', color: '#ffd24a', dur: 0 },
 }
 
+/** Temporary team vision (skills used on an area, Thundergod's Wrath hits...). `follow` makes the spot track a unit. */
+export interface VisionSpot {
+  team: Team
+  x: number
+  y: number
+  r: number
+  until: number
+  follow?: Unit
+}
+
+/**
+ * Team pings (Alt + click, like Dota): loc = look here, enemy = focus this enemy, attack = push this enemy building's lane,
+ * defend = defend this building of ours, help = help this ally.
+ */
+export type PingKind = 'loc' | 'enemy' | 'attack' | 'defend' | 'help'
+export interface Ping {
+  id: number
+  team: Team
+  x: number
+  y: number
+  kind: PingKind
+  /** unit id of the hero that pinged, and that hero's id (portrait on the map) */
+  owner: number
+  hero: string
+  /** pinged unit (the ping follows it) */
+  target?: number
+  t0: number
+  until: number
+  /** true when a human sent it (only those steer the bots) */
+  human: boolean
+}
+export const PING_LIFE = 2
+/** One colour per player slot of a team: that is the colour of their pings on the map. */
+export const PLAYER_COLORS = ['#3a8bff', '#2ee0c0', '#b45aff', '#ffe03a', '#ff8a2a']
+export const PING_INFO: Record<PingKind, { color: string; glyph: string; label: string }> = {
+  loc: { color: '#ffe066', glyph: '!', label: 'Attention' },
+  enemy: { color: '#ff5a4a', glyph: '✖', label: 'Enemy' },
+  attack: { color: '#ff9a3a', glyph: '⚔', label: 'Attack here' },
+  defend: { color: '#4aa8ff', glyph: '⛨', label: 'Defend here' },
+  help: { color: '#5aff8a', glyph: '+', label: 'Help' },
+}
+/** Radius around an observer ward in which enemy invisible units are revealed (the ward's vision radius). */
+export const WARD_VISION = 1600
+
 export interface Pick {
   hero: string
   lane: Lane
@@ -163,6 +207,8 @@ export interface WorldView {
   readonly zones: Zone[]
   readonly runes: Rune[]
   readonly wards: { id: number; x: number; y: number; team: Team; expires: number }[]
+  readonly visionSpots: VisionSpot[]
+  readonly pings: Ping[]
   readonly fxs: Fx[]
   readonly feed: { t: number; text: string; team: number }[]
   readonly kills: number[]
@@ -181,6 +227,7 @@ export interface WorldView {
   pendingFor(h: Unit): ItemDef[]
   castRange(u: Unit, st: AbilityState): number
   courierFor(h: Unit): Unit | undefined
+  pingColor(p: Ping): string
 }
 
 export class World implements WorldView {
@@ -217,6 +264,9 @@ export class World implements WorldView {
   nextWave = 0
   waveNo = 0
   vis: [Set<number>, Set<number>] = [new Set(), new Set()]
+  visionSpots: VisionSpot[] = []
+  pings: Ping[] = []
+  private pingId = 1
   visTimer = 0
   passiveGoldAcc = 0
   heroAggro = new Map<number, number>()
@@ -261,6 +311,7 @@ export class World implements WorldView {
   constructor(cfg: WorldCfg, public replica = false) {
     if (replica) return
     this.buildMap()
+    this.syncNav()
     this.buildHeroes(cfg)
     if (!this.player) this.player = this.heroes[0]
     this.computeVision()
@@ -316,6 +367,11 @@ export class World implements WorldView {
       for (const p of T4_POS) mk(3, null, team === 0 ? p : mirror(p))
     }
     this.updateTowerLocks()
+  }
+
+  /** Tell the pathfinder where the standing buildings are (called at start and whenever one falls). */
+  syncNav() {
+    setNavStructures(this.units.filter((u) => (u.kind === 'tower' || u.kind === 'ancient') && !u.dead).map((u) => ({ x: u.x, y: u.y, r: u.radius })))
   }
 
   private updateTowerLocks() {
@@ -492,14 +548,28 @@ export class World implements WorldView {
       const obs: { x: number; y: number; r: number }[] = []
       for (const u of this.units) if (u.team === team && !u.dead) obs.push({ x: u.x, y: u.y, r: this.visionOf(u) })
       for (const z of this.zones) if (z.reveal && z.team === team && this.time >= z.start) obs.push({ x: z.x, y: z.y, r: z.r + 100 })
-      for (const wd of this.wards) if (wd.team === team) obs.push({ x: wd.x, y: wd.y, r: 1600 })
+      const wards = this.wards.filter((wd) => wd.team === team)
+      for (const wd of wards) obs.push({ x: wd.x, y: wd.y, r: WARD_VISION })
+      for (const sp of this.visionSpots) {
+        if (sp.team !== team || sp.until <= this.time) continue
+        if (sp.follow) {
+          if (sp.follow.dead) continue
+          sp.x = sp.follow.x
+          sp.y = sp.follow.y
+        }
+        obs.push({ x: sp.x, y: sp.y, r: sp.r })
+      }
       for (const u of this.units) {
         if (u.dead) continue
         if (u.team === team) {
           set.add(u.id)
           continue
         }
-        if (u.isInvisible(this.time)) continue
+        if (u.isInvisible(this.time)) {
+          // only a friendly ward sees invisible enemies, and only inside its zone
+          if (wards.some((wd) => (u.x - wd.x) ** 2 + (u.y - wd.y) ** 2 <= WARD_VISION * WARD_VISION)) set.add(u.id)
+          continue
+        }
         for (const o of obs) {
           if ((u.x - o.x) ** 2 + (u.y - o.y) ** 2 <= o.r * o.r) {
             set.add(u.id)
@@ -544,6 +614,51 @@ export class World implements WorldView {
 
   addZone(z: Zone) {
     this.zones.push(z)
+    // an area skill shows its area to the caster's whole team for as long as it lasts
+    if ((z.team as number) !== 2) this.grantVision(z.team, z.x, z.y, z.r + 100, Math.max(0.5, z.end - this.time))
+  }
+
+  /** Colour of a ping = the colour of the player (team slot) that sent it. */
+  pingColor(p: Ping): string {
+    const mates = this.heroes.filter((h) => h.team === p.team).sort((a, b) => a.id - b.id)
+    const i = mates.findIndex((h) => h.id === p.owner)
+    return PLAYER_COLORS[(i < 0 ? 0 : i) % PLAYER_COLORS.length]
+  }
+
+  /** Give `team` vision of a circle (or of a moving unit) for `dur` seconds. */
+  grantVision(team: Team, x: number, y: number, r: number, dur: number, follow?: Unit) {
+    if ((team as number) === 2) return
+    this.visionSpots.push({ team, x, y, r, until: this.time + dur, follow })
+    if (this.visionSpots.length > 120) this.visionSpots.shift()
+    this.visTimer = 0
+  }
+
+  /**
+   * A team ping from `owner` at (x, y). `targetId` is the unit under the cursor; it decides the kind: enemy building = attack,
+   * own building = defend, ally hero = help, enemy unit = enemy, otherwise a plain location ping.
+   */
+  ping(owner: Unit, x: number, y: number, targetId?: number): Ping | null {
+    if (owner.dead || !owner.h) return null
+    if (this.time - (owner.extra.pingAt ?? -9) < 0.6) return null
+    let target = targetId ? this.units.find((u) => u.id === targetId) : undefined
+    if (target && (target.dead || target.kind === 'fountain' || target.kind === 'courier' || !this.isVisible(owner.team, target))) target = undefined
+    let kind: PingKind = 'loc'
+    if (target) {
+      if (target.isBuilding) kind = target.team === owner.team ? 'defend' : 'attack'
+      else if (target.team === owner.team) kind = target !== owner && target.kind === 'hero' ? 'help' : 'loc'
+      else kind = 'enemy'
+      if (kind === 'loc') target = undefined
+    }
+    owner.extra.pingAt = this.time
+    this.pings = this.pings.filter((p) => p.owner !== owner.id) // one live ping per hero
+    const p: Ping = {
+      id: this.pingId++, team: owner.team, x: clamp(target ? target.x : x, 0, MAP), y: clamp(target ? target.y : y, 0, MAP), kind,
+      owner: owner.id, hero: owner.h.def.id, target: target?.id, t0: this.time, until: this.time + PING_LIFE, human: owner.h.isHuman,
+    }
+    this.pings.push(p)
+    if (this.pings.length > 24) this.pings.shift()
+    if (p.human) this.team[owner.team].onPing(this, p)
+    return p
   }
 
   spawnLinear(p: Partial<Proj> & { owner: Unit; x: number; y: number; angle: number; speed: number; range: number; radius: number }) {
@@ -611,6 +726,7 @@ export class World implements WorldView {
     s.block = 0
     s.evasion = 0
     s.dmgReduce = 0
+    s.lifesteal = 0
     if (h) {
       const lv = h.level - 1
       const d = h.def
@@ -634,6 +750,7 @@ export class World implements WorldView {
         itemEvasion += st.evasion || 0
         bootMs = Math.max(bootMs, st.bootMs || 0)
         hpPct += st.hpRegenPct || 0
+        s.lifesteal += st.lifesteal || 0
       }
       s.armor = b.armor
       s.ms = b.ms
@@ -809,13 +926,48 @@ export class World implements WorldView {
     const k = nwKill >= nwVictim ? 1 - diff / lead : 1 + diff / lead
     const share = ((30 + 0.038 * this.netWorth(t)) * k) / Math.max(1, group.size)
     for (const h of group) this.gold(h, share + (h === killer ? base : 0))
-    // experience
+    // experience: nearby heroes AND every assister (anyone who damaged the victim recently) share it; the killer's share is 50% bigger
     const xpHeroes = new Set<Unit>(near)
+    for (const h of recent) xpHeroes.add(h)
     if (killer) xpHeroes.add(killer)
     const x = Math.min(prevStreak, 9)
     const streakXp = prevStreak >= 3 ? (1.25 * x * x - 2.5 * x + 10) * L : 0
-    const each = (100 + 0.13 * hs.xp) / Math.max(1, xpHeroes.size) + streakXp
-    for (const h of xpHeroes) this.addXp(h, each)
+    const weight = (h: Unit) => (h === killer ? 1.5 : 1)
+    let totalW = 0
+    for (const h of xpHeroes) totalW += weight(h)
+    const pool = 100 + 0.13 * hs.xp
+    for (const h of xpHeroes) this.addXp(h, (pool * weight(h)) / Math.max(1, totalW) + (h === killer ? streakXp : 0))
+    // let the player see their assist reward
+    for (const h of group) if (h !== killer && h.h!.isHuman) this.text(h.x, h.y - 100, `ASSIST +${Math.round(share)}g`, '#9ad0ff', 16)
+  }
+
+  /**
+   * Destroying a tower (Dota 2 rules): the hero that lands the last hit gets the tower's bounty (120 / 140 / 160 / 180 for tiers
+   * 1-4) and experience, shared with the enemy heroes nearby like a hero kill. Every hero of the destroying team also gets a share
+   * of the bounty (40%), whoever hit it, so a creep wave taking a tower still pays the team. Denying your own tower pays nothing.
+   */
+  private towerRewards(t: Unit, src: Unit | null) {
+    const enemy = (1 - t.team) as Team
+    if (src && src.team === t.team) return // denied
+    const tier = Math.min(3, t.tier)
+    const bounty = [120, 140, 160, 180][tier]
+    const teamShare = bounty * 0.4
+    let hit: Unit | null = src && src.kind === 'hero' ? src : src && src.kind === 'summon' && src.extra.owner?.kind === 'hero' ? src.extra.owner : null
+    if (hit && (hit.team !== enemy || !hit.h)) hit = null
+    for (const h of this.heroes) {
+      if (h.team !== enemy) continue
+      if (h === hit) this.gold(h, bounty + teamShare)
+      else this.gold(h, teamShare)
+    }
+    if (hit) {
+      const xpPool = [120, 170, 220, 270][tier]
+      const near = this.heroes.filter((h) => h.team === enemy && !h.dead && h !== hit && dist(h, t) <= 1500)
+      const w = (h: Unit) => (h === hit ? 1.5 : 1)
+      const group = [hit, ...near]
+      const totalW = group.reduce((n, h) => n + w(h), 0)
+      for (const h of group) this.addXp(h, (xpPool * w(h)) / totalW)
+      this.text(hit.x, hit.y - 120, `TOWER +${bounty + Math.round(teamShare)}g`, '#ffd24a', 17)
+    }
   }
 
   heroesNear(team: Team, x: number, y: number, r: number) {
@@ -874,8 +1026,9 @@ export class World implements WorldView {
     if (src) for (const b of src.buffs) if (b.hunger) b.expires = 0
     if (t.kind === 'summon') this.vfx('ring', { x: t.x, y: t.y, r0: 10, r1: 90, dur: 0.4, color: t.tint })
     else if (t.kind === 'creep') this.creepDied(t, src)
-    else if (t.kind === 'tower') this.towerDied(t)
+    else if (t.kind === 'tower') this.towerDied(t, src)
     else if (t.kind === 'ancient') this.ancientDied(t)
+    if (t.kind === 'tower' || t.kind === 'ancient') this.syncNav() // standing buildings are obstacles for pathfinding
     else if (t.kind === 'hero') this.heroDied(t, src, o)
   }
 
@@ -919,10 +1072,9 @@ export class World implements WorldView {
     if (!src || src.team !== t.team) this.giveXp(enemyTeam, t.x, t.y, t.xp)
   }
 
-  private towerDied(t: Unit) {
+  private towerDied(t: Unit, src: Unit | null) {
     const enemyTeam = (1 - t.team) as Team
-    const g = [120, 140, 160, 180][t.tier]
-    for (const h of this.heroes) if (h.team === enemyTeam) this.gold(h, g)
+    this.towerRewards(t, src)
     this.pushFeed(`${t.team === 0 ? 'Radiant' : 'Dire'} ${t.name} destroyed`, enemyTeam)
     this.emit('tower', t.x, t.y, { all: true })
     this.announceAbout('tower_down', t.team, t.name, enemyTeam)
@@ -1093,10 +1245,11 @@ export class World implements WorldView {
     u.order = { t: 'amove', x: clamp(x, 40, MAP - 40), y: clamp(y, 40, MAP - 40), target: null }
   }
 
-  orderStop(u: Unit) {
+  /** Stop: cancel the current action. With `holdFire` the unit also stops auto-attacking until it is given a new order. */
+  orderStop(u: Unit, holdFire = false) {
     if (u.dead || u.forced) return
     this.cancelForOrder(u)
-    u.order = { t: 'idle' }
+    u.order = holdFire ? { t: 'idle', holdFire: true } : { t: 'idle' }
   }
 
   orderHold(u: Unit) {
@@ -1634,6 +1787,18 @@ export class World implements WorldView {
       this.units = this.units.filter((u) => !(u.dead && (u.kind === 'creep' || u.kind === 'summon') && this.time - u.deadAt > 1))
     }
     if (this.wards.length) this.wards = this.wards.filter((wd) => wd.expires > this.time)
+    if (this.visionSpots.length) this.visionSpots = this.visionSpots.filter((sp) => sp.until > this.time && !(sp.follow && sp.follow.dead))
+    if (this.pings.length) {
+      for (const p of this.pings) {
+        const tu = p.target ? this.units.find((x) => x.id === p.target) : undefined
+        if (tu) {
+          p.x = tu.x
+          p.y = tu.y
+          if (tu.dead) p.until = Math.min(p.until, this.time + 0.4)
+        }
+      }
+      this.pings = this.pings.filter((p) => p.until > this.time)
+    }
     this.fxs = this.fxs.filter((f) => this.time - f.t0 < f.dur)
     this.zones = this.zones.filter((z) => this.time < z.end)
     if (this.time % 2 < dt) for (const [id, t] of this.heroAggro) if (this.time - t > 3) this.heroAggro.delete(id)
@@ -1975,7 +2140,8 @@ export class World implements WorldView {
       case 'idle':
       case 'hold': {
         const r = u.st.range
-        const t = u.kind === 'creep' || u.noAuto ? null : this.acquire(u, r + 40, u.kind !== 'hero')
+        const quiet = order.t === 'idle' && order.holdFire
+        const t = u.kind === 'creep' || u.noAuto || quiet ? null : this.acquire(u, r + 40, u.kind !== 'hero')
         if (t) this.attackStep(u, t, dt, false)
         break
       }
@@ -2103,8 +2269,14 @@ export class World implements WorldView {
       this.emit('hit', t.x, t.y)
       return
     }
-    this.damage(u, t, dmg, 'physical', { attack: true })
+    const dealt = this.damage(u, t, dmg, 'physical', { attack: true })
     this.emit('hit', t.x, t.y)
+    if (dealt > 0 && u.st.lifesteal > 0 && u.team !== t.team && !t.isBuilding && !u.dead) {
+      const gain = dealt * u.st.lifesteal * (t.kind === 'hero' ? 1 : 0.6)
+      const before = u.hp
+      this.heal(u, gain)
+      if (u.h?.isHuman && u.hp - before >= 4) this.text(u.x + 30, u.y - 40, `+${Math.round(u.hp - before)}`, '#7aff9a', 13)
+    }
     if (t.h && u.team !== t.team) {
       for (const a of t.h.abilities) if (a.level > 0 && a.def.onAttacked) a.def.onAttacked(this, t, u, a.level, a)
     }
@@ -2154,7 +2326,30 @@ export class World implements WorldView {
     }
     if (u.h && d.stealable !== false && d.behavior !== 'passive') u.h.lastCast = { def: d, level: lvl }
     d.cast?.(this, u, lvl, { unit: c.target, x: c.x, y: c.y }, st)
+    this.skillVision(u, st, c)
     this.emit('cast', u.x, u.y, u.h ? { hero: u.id } : undefined, d.color)
+    if (u.h) {
+      u.h.lastCast = d.stealable === false ? u.h.lastCast : { def: d, level: lvl }
+    }
+  }
+
+  /**
+   * Skills used on an area light that area up for the caster's team, and skills that hit an enemy unit show it briefly.
+   * Skills aimed in a direction (hook, arrow) only reveal up to their reach so they cannot scout the whole map.
+   */
+  private skillVision(u: Unit, st: AbilityState, c: { target?: Unit; x: number; y: number }) {
+    const d = st.def
+    if ((u.team as number) === 2) return
+    if (d.behavior === 'point' && !d.noMove) {
+      const reach = this.castRange(u, st) || 1300
+      const dx = c.x - u.x
+      const dy = c.y - u.y
+      const dd = Math.hypot(dx, dy) || 1
+      const k = Math.min(1, reach / dd)
+      this.grantVision(u.team, u.x + dx * k, u.y + dy * k, 500, 3)
+    } else if (d.behavior === 'unit' && c.target && c.target.team !== u.team && !c.target.isBuilding) {
+      this.grantVision(u.team, c.target.x, c.target.y, 380, 2, c.target)
+    }
   }
 
   /* ------------------------------------------------------- projectiles */
