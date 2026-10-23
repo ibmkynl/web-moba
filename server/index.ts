@@ -378,7 +378,8 @@ const server = http.createServer((req, res) => {
   }
 })
 
-const wss = new WebSocketServer({ server, path: '/ws' })
+// snapshots are repetitive JSON: deflate shrinks them about 6x for ~0.2 ms of CPU each (see bench/sim-bench.ts --snap)
+const wss = new WebSocketServer({ server, path: '/ws', perMessageDeflate: { threshold: 1024, zlibDeflateOptions: { level: 3 } } })
 wss.on('connection', (ws) => {
   if (players.size >= 14) {
     send(ws, { t: 'full' })

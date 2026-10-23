@@ -4,6 +4,7 @@ import type { AbilityState, HeroDef, Unit } from '../sim/entities'
 import { ITEMS } from '../sim/items'
 import { itemIcon } from './itemicons'
 import { esc } from './html'
+import { QUALITIES } from '../render/renderer3d'
 import { heroPortrait } from '../render/portraits'
 
 const ABIL_KEYS = ['Q', 'W', 'E', 'R', 'D']
@@ -70,6 +71,7 @@ export class Hud {
           <div class="score"><span class="rs">0</span><span class="time">00:00</span><span class="ds">0</span></div>
           <div class="dn"><i></i><span>Day</span></div>
           <div class="rt">Rune <b>2:00</b></div>
+          ${this.g.net ? '<div class="ping-live" title="Round trip to the host">— ms</div>' : ''}
         </div>
         <div class="team-row" id="dire-row"></div>
       </div>
@@ -79,6 +81,7 @@ export class Hud {
         <button id="b-quick" title="Quick cast (M)">⚡</button>
         <button id="b-stats" title="Stats (hold Tab)">▤</button>
         <button id="b-sound" title="Sound on/off">♪</button>
+        <button id="b-gfx" title="Graphics quality">◐</button>
         <button id="b-help" title="Controls">?</button>
         ${this.g.net ? '' : '<button id="b-test" title="Test: max level + 20000 gold (single player only)">★</button>'}
         <button id="b-quit" title="Quit match (Esc)">✕</button>
@@ -262,6 +265,12 @@ export class Hud {
       const m = this.g.sfx.toggle()
       $('#b-sound').classList.toggle('muted', m)
       this.toast(m ? 'Sound off' : 'Sound on')
+    }
+    $('#b-gfx').onclick = () => {
+      const r = this.g.renderer
+      const q = QUALITIES[(QUALITIES.indexOf(r.quality) + 1) % QUALITIES.length]
+      r.setQuality(q)
+      this.toast(`Graphics: ${q[0].toUpperCase() + q.slice(1)}`)
     }
     const tb = this.root.querySelector('#b-test') as HTMLElement | null
     if (tb) tb.onclick = () => this.g.testBoost()
@@ -541,6 +550,18 @@ export class Hud {
 
   /* ------------------------------------------------------------- update */
 
+  private pingTxt = ''
+  private updatePing(p: Unit) {
+    const ms = p.extra.ping as number | undefined
+    const txt = ms === undefined ? '— ms' : `${ms} ms`
+    if (txt === this.pingTxt) return
+    this.pingTxt = txt
+    const el = this.root.querySelector('.ping-live') as HTMLElement | null
+    if (!el) return
+    el.textContent = txt
+    el.className = 'ping-live ' + (ms === undefined ? '' : ms < 80 ? 'good' : ms < 160 ? 'ok' : 'bad')
+  }
+
   update(dt: number) {
     const w = this.g.world
     const p = w.player
@@ -568,6 +589,7 @@ export class Hud {
     this.e.rs.textContent = String(w.kills[0])
     this.e.ds.textContent = String(w.kills[1])
     this.e.time.textContent = mmss(w.time)
+    if (this.g.net) this.updatePing(p)
     const day = w.isDay
     this.e.dn.className = 'dn ' + (day ? 'day' : 'night')
     this.e.dn.querySelector('span')!.textContent = day ? 'Day' : 'Night'

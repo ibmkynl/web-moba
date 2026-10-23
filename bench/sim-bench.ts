@@ -7,6 +7,7 @@
  * --snap    also measures the multiplayer snapshot builder at 20 Hz (what server/index.ts does)
  * Budget: one tick must stay well under 16.7 ms on the client (sim + render share the frame) and under 4 ms on the server.
  */
+import zlib from 'node:zlib'
 import { World } from '../src/sim/world'
 import { HEROES } from '../src/sim/heroes'
 import { snapshotFor } from '../src/net/snapshot'
@@ -46,6 +47,8 @@ const samples: number[] = []
 const snapSamples: number[] = []
 const unitCounts: number[] = []
 let snapBytes = 0
+let snapZBytes = 0
+const zSamples: number[] = []
 let snapN = 0
 const ticks = Math.round(minutes * 60 / STEP)
 for (let i = 0; i < ticks && w.winner === null; i++) {
@@ -55,10 +58,14 @@ for (let i = 0; i < ticks && w.winner === null; i++) {
   if (i % 60 === 0) unitCounts.push(w.units.length)
   if (SNAP && i % 3 === 0) {
     const s2 = performance.now()
-    const a = snapshotFor(w, 0, w.heroes[0].id, i, [])
+    const a = snapshotFor(w, 0, w.heroes[0].id, i, { sfx: [], ann: [], txt: [], vfx: [] })
     const str = JSON.stringify(a)
     snapSamples.push(performance.now() - s2)
     snapBytes += str.length
+    // what permessage-deflate sends (an upper bound: ws also reuses the window across messages)
+    const s3 = performance.now()
+    snapZBytes += zlib.deflateRawSync(str, { level: 3 }).length
+    zSamples.push(performance.now() - s3)
     snapN++
   }
 }
@@ -87,6 +94,8 @@ console.log(`ticks > 4 ms: ${over} (${((over / samples.length) * 100).toFixed(2)
 if (SNAP) {
   console.log(row('snapshot', snapSamples))
   console.log(`snapshot size avg ${(snapBytes / snapN / 1024).toFixed(1)} KiB x 20 Hz = ${((snapBytes / snapN / 1024) * 20).toFixed(0)} KiB/s per client`)
+  console.log(`deflated  avg ${(snapZBytes / snapN / 1024).toFixed(1)} KiB x 20 Hz = ${((snapZBytes / snapN / 1024) * 20).toFixed(0)} KiB/s per client`)
+  console.log(row('deflate', zSamples))
 }
 if (PHASES) {
   const total = samples.reduce((a, b) => a + b, 0)

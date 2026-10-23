@@ -212,22 +212,31 @@ export function snapshotFor(w: World, team: 0 | 1, meId: number, seq: number, ev
 
 /* -------------------------------------------------------------------- replica */
 
-interface Interp {
-  fx: number
-  fy: number
-  tx: number
-  ty: number
-  at: number
+/** One server position of a unit, stamped with server time. */
+interface Sample {
+  t: number
+  x: number
+  y: number
 }
+/** Samples kept per unit: enough to cover the interpolation delay plus a late packet. */
+const HISTORY = 6
+/** Positions further apart than this between two snapshots are teleports: no sliding. */
+const SNAP_DIST = 450
 
 export class Replica {
   world: World
   meId = 0
   seq = 0
-  private interp = new Map<number, Interp>()
+  /** per-unit server positions; units are drawn `delay` seconds behind the newest snapshot, between two samples */
+  private hist = new Map<number, Sample[]>()
+  /** estimated server time minus local time (s), tracking the earliest-arriving snapshots */
+  private offset: number | null = null
+  /** smoothed lateness of snapshots relative to `offset` (s) */
+  private jitter = 0
+  /** smoothed server time between snapshots (s) */
+  private gap = 0.05
+  delay = 0.1
   private recvAt = 0
-  private interval = 50
-  private lastRecv = 0
   private snapT = 0
   private nextPowerFrom = 0
 
@@ -263,8 +272,7 @@ export class Replica {
   apply(snap: Snapshot, now: number) {
     const w = this.world
     this.meId = snap.me
-    this.interval = Math.max(20, Math.min(120, now - this.lastRecv || 50))
-    this.lastRecv = now
+    this.trackClock(snap.t, now / 1000)
     this.recvAt = now
     this.snapT = snap.t
     w.time = snap.t
@@ -287,6 +295,7 @@ export class Replica {
       if (s.hid) {
         // hidden enemy hero: roster info only
         u.extra.stub = true
+        this.hist.delete(u.id)
         u.dead = !!s.dead
         u.hp = s.hp ?? 0
         u.st.maxHp = s.st?.maxHp ?? 1
@@ -295,16 +304,16 @@ export class Replica {
       }
       u.extra.stub = false
       visIds.add(u.id)
-      // interpolation target
-      const prev = this.interp.get(u.id)
-      const jump = prev && Math.hypot(u.x - s.x!, u.y - s.y!) > 450
-      if (!prev || jump) {
+      // interpolation history
+      let h = this.hist.get(u.id)
+      const last = h?.[h.length - 1]
+      if (!h || !last || Math.hypot(last.x - s.x!, last.y - s.y!) > SNAP_DIST) {
+        this.hist.set(u.id, (h = []))
         u.x = s.x!
         u.y = s.y!
-        this.interp.set(u.id, { fx: s.x!, fy: s.y!, tx: s.x!, ty: s.y!, at: now })
-      } else {
-        this.interp.set(u.id, { fx: u.x, fy: u.y, tx: s.x!, ty: s.y!, at: now })
       }
+      if (!last || snap.t > last.t) h.push({ t: snap.t, x: s.x!, y: s.y! })
+      if (h.length > HISTORY) h.shift()
       u.facing = s.f!
       u.vx = s.vx!
       u.vy = s.vy!
@@ -347,7 +356,7 @@ export class Replica {
     // remove units that are no longer sent
     if (w.units.some((u) => !seen.has(u.id))) {
       const dead = w.units.filter((u) => !seen.has(u.id))
-      for (const u of dead) this.interp.delete(u.id)
+      for (const u of dead) this.hist.delete(u.id)
       w.units = w.units.filter((u) => seen.has(u.id))
       w.heroes = w.heroes.filter((u) => seen.has(u.id))
       w.towers = w.towers.filter((u) => seen.has(u.id))
@@ -448,16 +457,39 @@ export class Replica {
     h.stolen = hs.sl ? this.abState(hs.sl, h.stolen ?? undefined) : null
   }
 
-  /** Per-frame: smooth positions between snapshots and advance the clock. */
+  /** Keeps the server-clock estimate and the interpolation delay up to date (Valve/Gambetta-style entity interpolation). */
+  private trackClock(serverT: number, local: number) {
+    const off = serverT - local
+    if (this.offset === null || Math.abs(off - this.offset) > 1) {
+      this.offset = off
+      this.jitter = 0
+    } else {
+      const late = this.offset - off
+      // an early packet moves the estimate up at once; the slow downward drift absorbs clock skew
+      this.offset = late < 0 ? off : this.offset - late * 0.02
+      this.jitter += (Math.max(0, late) - this.jitter) * 0.1
+    }
+    if (serverT > this.snapT && this.snapT > 0) this.gap += (Math.min(0.25, serverT - this.snapT) - this.gap) * 0.1
+    // one snapshot gap plus room for typical lateness, so a single late packet never freezes units
+    this.delay = Math.max(0.06, Math.min(0.25, this.gap * 1.5 + this.jitter * 2))
+  }
+
+  /** Per-frame: place units between the two snapshots around (server now - delay) and advance the clock. */
   update(now: number) {
     const w = this.world
-    const k = (t: number) => Math.max(0, Math.min(1, (now - t) / this.interval))
+    if (this.offset === null) return
+    const rt = now / 1000 + this.offset - this.delay
     for (const u of w.units) {
-      const it = this.interp.get(u.id)
-      if (!it) continue
-      const a = k(it.at)
-      u.x = it.fx + (it.tx - it.fx) * a
-      u.y = it.fy + (it.ty - it.fy) * a
+      const h = this.hist.get(u.id)
+      if (!h || !h.length) continue
+      let i = h.length - 1
+      while (i > 0 && h[i - 1].t > rt) i--
+      // i = first sample at or after rt (or the newest when rt is past every sample)
+      const b = h[i]
+      const a = i > 0 ? h[i - 1] : b
+      const k = b.t > a.t ? Math.max(0, Math.min(1, (rt - a.t) / (b.t - a.t))) : 1
+      u.x = a.x + (b.x - a.x) * k
+      u.y = a.y + (b.y - a.y) * k
     }
     w.time = this.snapT + Math.min(0.12, (now - this.recvAt) / 1000)
   }
