@@ -2,7 +2,7 @@ import { ROCKS, TREES } from '../sim/obstacles'
 import * as THREE from 'three'
 import { MAP, Pt, TEAM_COLOR, Team, isNeutral } from '../sim/constants'
 import type { Unit } from '../sim/entities'
-import { RUNE_INFO, reaches, type World } from '../sim/world'
+import { RUNE_INFO, reaches, type WorldView } from '../sim/world'
 import { Minimap } from './minimap'
 import { optimizeModel } from './modelopt'
 import { buildTerrain } from './terrain3d'
@@ -131,7 +131,7 @@ export class Renderer3D {
   // local ground->screen affine (set each frame)
   A = { ox: 0, oy: 0, ax: 1, ay: 0, bx: 0, by: 1 }
 
-  constructor(public canvas: HTMLCanvasElement, public w: World) {
+  constructor(public canvas: HTMLCanvasElement, public w: WorldView) {
     this.myTeam = w.player.team
     this.cam = { x: w.player.x, y: w.player.y }
     // antialiasing happens on the post-processing target, so the canvas itself needs none

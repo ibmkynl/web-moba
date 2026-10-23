@@ -1,7 +1,7 @@
 import { heroPortrait } from './portraits'
 import { TREES, RIVER } from '../sim/obstacles'
 import { LANES, MAP, PATHS, Pt, TEAM_COLOR, Team } from '../sim/constants'
-import type { World } from '../sim/world'
+import type { WorldView } from '../sim/world'
 
 /** The minimap: map art, units, wards, runes, the player's route and the camera rectangle. */
 export class Minimap {
@@ -17,7 +17,7 @@ export class Minimap {
   groundImg: HTMLCanvasElement | null = null
   private heroIcons = new Map<string, HTMLImageElement>()
 
-  constructor(public w: World) {}
+  constructor(public w: WorldView) {}
 
   private heroIcon(id: string): HTMLImageElement | null {
     let im = this.heroIcons.get(id)

@@ -84,7 +84,7 @@ export class Hud {
   /* ------------------------------------------------------------- build */
 
   private build() {
-    const w = this.g.world
+    const w = this.g.view
     this.root.innerHTML = `
       <div id="tpbar"><div class="tp-t">Teleporting<small>Stand still — moving cancels it and uses up the scroll</small></div><div class="tp-b"><i></i></div><div class="tp-s"></div></div>
       <div id="topbar" class="ui">
@@ -443,7 +443,7 @@ export class Hud {
   /* -------------------------------------------------------------- shop */
 
   private renderShop() {
-    const w = this.g.world
+    const w = this.g.view
     const p = w.player
     const hs = p.h!
     const near = w.nearShop(p)
@@ -494,7 +494,7 @@ export class Hud {
   /* -------------------------------------------------------- scoreboard */
 
   private renderScore() {
-    const w = this.g.world
+    const w = this.g.view
     const mmss2 = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`
     const min = Math.max(1 / 6, w.time / 60)
     const worth = (h: Unit) => w.netWorth(h)
@@ -544,7 +544,7 @@ export class Hud {
   private updateUnitInfo() {
     const el = this.root.querySelector('#unitinfo') as HTMLElement
     const u = this.g.hover
-    const w = this.g.world
+    const w = this.g.view
     if (!u || u.dead || u.kind === 'fountain' || u.stub) {
       el.classList.add('hidden')
       return
@@ -582,7 +582,7 @@ export class Hud {
   }
 
   update(dt: number) {
-    const w = this.g.world
+    const w = this.g.view
     const p = w.player
     const hs = p.h!
     // minimap every frame

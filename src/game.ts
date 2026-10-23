@@ -1,7 +1,7 @@
 import { MAP, Pt, STEP, dist } from './sim/constants'
 import { freePoint, routeFor } from './sim/nav'
 import type { AbilityState, Unit } from './sim/entities'
-import { World, WorldCfg, announcementText, inAudience, reaches, type Announcement } from './sim/world'
+import { World, WorldCfg, type WorldView, announcementText, inAudience, reaches, type Announcement } from './sim/world'
 import type { Overlay } from './render/renderer3d'
 import { Renderer3D } from './render/renderer3d'
 import { Hud } from './ui/hud'
@@ -83,6 +83,11 @@ export class Game {
     cancelAnimationFrame(this.raf)
     this.net?.close()
     location.reload()
+  }
+
+  /** What presentation code (HUD) may read. */
+  get view(): WorldView {
+    return this.world
   }
 
   get player() {

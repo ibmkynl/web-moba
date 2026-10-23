@@ -152,7 +152,40 @@ const TP_CHANNEL = 3
 const HERO_VISION_DAY = 1800
 const HERO_VISION_NIGHT = 1100
 
-export class World {
+/**
+ * The read side of a world: everything the renderer, minimap and HUD use. The simulation World implements it, and
+ * on clients the network replica fills one in from snapshots; presentation code depends on this, never on the
+ * simulation's mutating methods. (vfxQ is drained by the renderer.)
+ */
+export interface WorldView {
+  readonly time: number
+  readonly units: Unit[]
+  readonly heroes: Unit[]
+  readonly projs: Proj[]
+  readonly zones: Zone[]
+  readonly runes: Rune[]
+  readonly wards: { id: number; x: number; y: number; team: Team; expires: number }[]
+  readonly fxs: Fx[]
+  readonly feed: { t: number; text: string; team: number }[]
+  readonly kills: number[]
+  readonly winner: Team | null
+  readonly nextPowerRune: number
+  readonly isDay: boolean
+  vfxQ: any[]
+  player: Unit
+  isVisible(team: Team, u: Unit): boolean
+  runeVisible(team: Team, r: { x: number; y: number }): boolean
+  visionOf(u: Unit): number
+  nightAmount(): number
+  netWorth(h: Unit): number
+  canLevel(h: Unit, i: number): boolean
+  nearShop(h: Unit): boolean
+  pendingFor(h: Unit): ItemDef[]
+  castRange(u: Unit, st: AbilityState): number
+  courierFor(h: Unit): Unit | undefined
+}
+
+export class World implements WorldView {
   time = 0
   units: Unit[] = []
   heroes: Unit[] = []
