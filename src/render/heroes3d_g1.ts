@@ -1,54 +1,20 @@
 import * as THREE from 'three'
-import { Builder, Model, TEAM, box, cone, cyl, sph, teamRing } from './modelkit'
-
-export type HeroModelFn = (id: string, color: string, color2: string, team: number, r: number) => Model
+import { type HeroModelFn, box, cone, cyl, makeScaffold, sph } from './modelkit'
 
 const PI = Math.PI
 
-/** Shared scaffolding: builder, groups and a `put` that positions meshes in units of r (x forward, y up, z lateral). */
+/** Shared scaffolding plus a pivot helper that takes absolute model coordinates, and a smoothed walk/idle driver. */
 function scaffold(team: number, r: number) {
-  const b = new Builder()
-  const g = new THREE.Group()
-  teamRing(b, g, r, team)
-  const body = new THREE.Group()
-  g.add(body)
-  const weapon = new THREE.Group()
-  const glow = (c: string, i = 0.9) => b.m(c, { emissive: new THREE.Color(c), emissiveIntensity: i })
-  const metal = (c: string) => b.m(c, { metalness: 0.65, roughness: 0.35 })
-  const trim = b.m(TEAM[team], { emissive: new THREE.Color(TEAM[team]), emissiveIntensity: 0.35 })
-  const dbl = (c: string, o: Partial<THREE.MeshStandardMaterialParameters> = {}) => b.m(c, { side: THREE.DoubleSide, ...o })
-  const put = (
-    geo: THREE.BufferGeometry,
-    mt: THREE.Material,
-    x: number,
-    y: number,
-    z: number,
-    rot: [number, number, number] = [0, 0, 0],
-    parentOrScale?: THREE.Object3D | [number, number, number],
-    sc0?: [number, number, number],
-  ) => {
-    const parent = parentOrScale instanceof THREE.Object3D ? parentOrScale : body
-    const sc = Array.isArray(parentOrScale) ? parentOrScale : sc0
-    const me = b.mesh(geo, mt, x * r, y * r, z * r, parent)
-    me.rotation.set(rot[0], rot[1], rot[2])
-    if (sc) me.scale.set(sc[0], sc[1], sc[2])
-    return me
-  }
+  const s = makeScaffold(team, r, 0.9)
+  const { body, put } = s
   /** A pivot group at (x,y,z) (units of r) plus a `put` that takes absolute model coordinates and places meshes inside it. */
   const pivot = (x: number, y: number, z: number, parent: THREE.Object3D = body) => {
-    const pv = new THREE.Group()
-    pv.position.set(x * r, y * r, z * r)
-    parent.add(pv)
+    const pv = s.piv(x, y, z, parent)
     const lput = (
       geo: THREE.BufferGeometry, mt: THREE.Material, mx: number, my: number, mz: number,
       rot: [number, number, number] = [0, 0, 0], sc?: [number, number, number],
     ) => put(geo, mt, mx - x, my - y, mz - z, rot, pv, sc)
     return { pv, lput }
-  }
-  const finish = (height: number, update?: Model['update']): Model => {
-    body.add(weapon)
-    void trim
-    return { group: g, weapon, body, height, mats: b.mats, update }
   }
   /** Smoothed walk/idle driver shared by all models. */
   const motion = () => {
@@ -63,7 +29,7 @@ function scaffold(team: number, r: number) {
       return { amp, walk: Math.sin(ph), walk2: Math.sin(ph + PI), breathe: Math.sin(t * 2.2), t }
     }
   }
-  return { b, g, body, weapon, glow, metal, dbl, put, pivot, finish, motion }
+  return { ...s, pivot, motion }
 }
 
 const torus = (R: number, t: number, seg = 10) => new THREE.TorusGeometry(R, t, 5, seg)

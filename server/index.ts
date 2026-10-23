@@ -7,25 +7,14 @@ import { WebSocketServer, type WebSocket } from 'ws'
 import { HEROES } from '../src/sim/heroes'
 import { Unit } from '../src/sim/entities'
 import { World } from '../src/sim/world'
-import type { Lane } from '../src/sim/constants'
+import { LANE_SLOTS, STEP, shuffle, type Lane } from '../src/sim/constants'
 import { snapshotFor, type HostEvents } from '../src/net/snapshot'
 
 const PORT = Number(process.env.PORT || 8080)
-const STEP = 1 / 60
 const SNAP_EVERY = 3 // ticks per snapshot (20 Hz)
 const COUNTDOWN_MS = 5000
-const LANE_SLOTS: Lane[] = ['top', 'top', 'mid', 'bot', 'bot']
 const DIST = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 
-const shuffle = <T,>(a: T[]) => {
-  const r = [...a]
-  for (let i = r.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[r[i], r[j]] = [r[j], r[i]]
-  }
-  return r
-}
-const randHero = () => HEROES[Math.floor(Math.random() * HEROES.length)].id
 /** A random hero not already used by any other seat (heroes are unique across both teams). */
 const uniqueFor = (team: 0 | 1, exceptSeat: number, avoid: string[] = []) => {
   const used = new Set<string>(avoid)

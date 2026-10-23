@@ -45,7 +45,7 @@ const cellOf = (p: Pt) => ({ gx: Math.max(0, Math.min(N - 1, Math.floor(p.x / CE
 const isBlocked = (gx: number, gy: number) => gx < 0 || gy < 0 || gx >= N || gy >= N || blocked[gy * N + gx] === 1
 
 /** True when the straight segment a-b crosses no blocked cell. */
-export function lineClear(a: Pt, b: Pt): boolean {
+function lineClear(a: Pt, b: Pt): boolean {
   const len = Math.hypot(b.x - a.x, b.y - a.y)
   const steps = Math.ceil(len / (CELL * 0.45))
   for (let i = 1; i <= steps; i++) {
@@ -83,9 +83,8 @@ function nearestOpen(p: Pt): Pt | null {
   return null
 }
 
-const heap: number[] = []
 /** A* over the grid; returns smoothed waypoints from a (exclusive) to b (inclusive), or null when unreachable. */
-export function findPath(a: Pt, b: Pt): Pt[] | null {
+function findPath(a: Pt, b: Pt): Pt[] | null {
   const start = nearestOpen(a)
   const goal = nearestOpen(b)
   if (!start || !goal) return null

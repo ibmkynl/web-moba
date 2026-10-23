@@ -17,7 +17,6 @@ export function portraitStyle(def: HeroDef) {
   return url ? `background: url(${url}) center / cover no-repeat, ${fallback};` : `background: ${fallback};`
 }
 
-const attrIcon = (a: string) => (a === 'str' ? '<b class="a-str">S</b>' : a === 'agi' ? '<b class="a-agi">A</b>' : a === 'int' ? '<b class="a-int">I</b>' : '<b class="a-all">U</b>')
 
 const fmt = (n: number) => (Math.abs(n) >= 100 ? Math.round(n).toString() : (Math.round(n * 10) / 10).toString())
 const mmss = (t: number) => `${Math.floor(t / 60)
@@ -243,19 +242,9 @@ export class Hud {
     })
 
     // menu buttons
-    $('#b-pause').onclick = () => {
-      if (this.g.net) return
-      this.g.paused = !this.g.paused
-      this.setPaused(this.g.paused)
-    }
-    $('#b-cam').onclick = () => {
-      this.g.camLocked = !this.g.camLocked
-      this.toast(this.g.camLocked ? 'Camera locked to hero' : 'Camera free — edge scroll / arrows')
-    }
-    $('#b-quick').onclick = () => {
-      this.g.quickCast = !this.g.quickCast
-      this.toast(this.g.quickCast ? 'Quick cast ON' : 'Quick cast OFF')
-    }
+    $('#b-pause').onclick = () => this.g.togglePause()
+    $('#b-cam').onclick = () => this.g.toggleCamLock()
+    $('#b-quick').onclick = () => this.g.toggleQuickCast()
     $('#b-stats').onclick = () => {
       this.statsPinned = !this.statsPinned
       $('#b-stats').classList.toggle('on', this.statsPinned)
@@ -485,10 +474,7 @@ export class Hud {
     const w = this.g.world
     const mmss2 = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`
     const min = Math.max(1 / 6, w.time / 60)
-    const worth = (h: Unit) => {
-      const hs = h.h!
-      return Math.round(hs.gold + hs.items.reduce((n, it) => n + (it ? it.def.cost * Math.max(1, it.charges) : 0), 0))
-    }
+    const worth = (h: Unit) => w.netWorth(h)
     const fmtK = (n: number) => (n >= 10000 ? (n / 1000).toFixed(1) + 'k' : String(Math.round(n)))
     const row = (h: Unit) => {
       const hs = h.h!
@@ -740,14 +726,12 @@ export class Hud {
     } else this.e.respawn.classList.remove('on')
 
     // feed
-    const fk = w.feed.map((f) => f.t + f.text).join('|')
     const lines = w.feed.filter((f) => w.time - f.t < 9)
     const key = lines.map((f) => f.t + f.text).join('|')
     if (key !== this.feedKey) {
       this.feedKey = key
       this.e.feed.innerHTML = lines.map((f) => `<div class="fl t${f.team}">${esc(f.text)}</div>`).join('')
     }
-    void fk
 
     this.updateUnitInfo()
 

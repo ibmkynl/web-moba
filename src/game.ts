@@ -1,8 +1,8 @@
-import { MAP, Pt, dist } from './sim/constants'
+import { MAP, Pt, STEP, dist } from './sim/constants'
 import { freePoint, routeFor } from './sim/nav'
 import type { AbilityState, Unit } from './sim/entities'
 import { World, WorldCfg, announcementText, inAudience, reaches, type Announcement } from './sim/world'
-import type { Overlay } from './render/renderer'
+import type { Overlay } from './render/renderer3d'
 import { Renderer3D } from './render/renderer3d'
 import { Hud } from './ui/hud'
 import { Sfx } from './audio'
@@ -17,7 +17,6 @@ type Targeting =
   | { kind: 'tp' }
   | { kind: 'amove' }
 
-const STEP = 1 / 60
 
 export class Game {
   world: World
@@ -262,16 +261,7 @@ export class Game {
         ov.aoe = { x: this.mouse.x, y: this.mouse.y, r: 1600, color: 'rgba(255,233,168,0.7)' }
       } else ov.rangeCircle = { r: 1200, color: 'rgba(122,184,255,0.5)' }
     } else if (t && t.kind === 'tp') {
-      let b: Unit | null = null
-      let bd = 420
-      for (const o of this.world.units) {
-        if (o.dead || o.team !== p.team || (o.kind !== 'tower' && o.kind !== 'ancient')) continue
-        const dd = Math.hypot(o.x - this.mouse.x, o.y - this.mouse.y)
-        if (dd < bd) {
-          bd = dd
-          b = o
-        }
-      }
+      const b = this.world.nearestTpPoint(p.team, this.mouse.x, this.mouse.y)
       if (b) ov.aoe = { x: b.x, y: b.y, r: 260, color: 'rgba(111,214,255,0.9)' }
     } else if (t && t.kind === 'tk') {
       const tk = p.extra.tk
@@ -355,7 +345,6 @@ export class Game {
     }
     this.keys.add(e.code)
     const p = this.player
-    const w = this.world
     const abilityKeys = ['KeyQ', 'KeyW', 'KeyE', 'KeyR', 'KeyD', 'KeyF']
     const itemKeys = ['KeyZ', 'KeyX', 'KeyC', 'KeyV', 'KeyB', 'KeyN']
     const ai = abilityKeys.indexOf(e.code)
@@ -408,8 +397,7 @@ export class Game {
         this.renderer.cam = { x: p.x, y: p.y }
         break
       case 'KeyL':
-        this.camLocked = !this.camLocked
-        this.hud.toast(this.camLocked ? 'Camera locked to hero' : 'Camera free — edge scroll / arrows')
+        this.toggleCamLock()
         break
       case 'KeyS':
       case 'F4':
@@ -417,13 +405,10 @@ export class Game {
         this.hud.toggleShop()
         break
       case 'KeyP':
-        if (this.net) break
-        this.paused = !this.paused
-        this.hud.setPaused(this.paused)
+        this.togglePause()
         break
       case 'KeyM':
-        this.quickCast = !this.quickCast
-        this.hud.toast(this.quickCast ? 'Quick cast ON — abilities fire at the cursor' : 'Quick cast OFF — press, then click a target')
+        this.toggleQuickCast()
         break
       case 'Escape':
         if (this.hud.quitOpen) this.hud.closeQuit()
@@ -435,8 +420,6 @@ export class Game {
   }
 
   private leftClick() {
-    const p = this.player
-    const w = this.world
     const t = this.targeting
     if (t) {
       if (t.kind === 'amove') {
@@ -489,8 +472,23 @@ export class Game {
     this.moveGoal = { x: this.mouse.x, y: this.mouse.y }
   }
 
+  /** Pause (single player only); shared by the P key and the menu button. */
+  togglePause() {
+    if (this.net) return
+    this.paused = !this.paused
+    this.hud.setPaused(this.paused)
+  }
+  toggleQuickCast() {
+    this.quickCast = !this.quickCast
+    this.hud.toast(this.quickCast ? 'Quick cast ON — abilities fire at the cursor' : 'Quick cast OFF — press, then click a target')
+  }
+  toggleCamLock() {
+    this.camLocked = !this.camLocked
+    this.hud.toast(this.camLocked ? 'Camera locked to hero' : 'Camera free — edge scroll / arrows')
+  }
+
   marker(p: Pt, color: string) {
-    this.world.fx({ k: 'ring', x: p.x, y: p.y, r0: 46, r1: 10, dur: 0.35, color, width: 5 })
+    this.world.vfx('ring', { x: p.x, y: p.y, r0: 46, r1: 10, dur: 0.35, color })
   }
 
   /** Clicking a hero portrait in the top bar: jump the camera to them, but only if they are visible (no free scouting). */
@@ -516,7 +514,7 @@ export class Game {
     if (p.dead) return
     const hs = p.h!
     if (this.targeting?.kind === 'tp') {
-      const anc = w.units.find((a) => a.kind === 'ancient' && a.team === p.team)
+      const anc = w.ancientOf(p.team)
       const err = anc ? this.api.tpAt(anc.x, anc.y) : null
       if (err) this.hud.toast(err)
       this.targeting = null
@@ -626,8 +624,6 @@ export class Game {
 
   /** Try to cast `st` using the current cursor. Returns true if an order was issued. */
   private castAt(st: AbilityState, toast: boolean) {
-    const p = this.player
-    const w = this.world
     const def = st.def
     let err: string | null = null
     if (def.behavior === 'unit') {

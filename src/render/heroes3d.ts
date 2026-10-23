@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { Builder, Model, TEAM, box, cone, cyl, sph, teamRing } from './modelkit'
+import { Builder, Model, box, cone, cyl, sph, teamRing } from './modelkit'
 import { MODELS_G1 } from './heroes3d_g1'
 import { MODELS_G2 } from './heroes3d_g2'
 import { MODELS_G3 } from './heroes3d_g3'
@@ -17,10 +17,6 @@ export function buildHero(id: string, color: string, color2: string, team: numbe
   const body = new THREE.Group()
   g.add(body)
   const weapon = new THREE.Group()
-  const t = TEAM[team]
-  const glow = (c: string, i = 0.8) => b.m(c, { emissive: new THREE.Color(c), emissiveIntensity: i })
-  const metal = (c: string) => b.m(c, { metalness: 0.65, roughness: 0.35 })
-  const trim = b.m(t, { emissive: new THREE.Color(t), emissiveIntensity: 0.35 })
   const c1 = b.m(color)
   void color2
   let height = r * 3.2
@@ -43,7 +39,6 @@ export function buildHero(id: string, color: string, color2: string, team: numbe
     if (sc) me.scale.set(sc[0], sc[1], sc[2])
     return me
   }
-  const PI = Math.PI
 
   switch (id) {
     case 'pudge':
@@ -60,7 +55,6 @@ export function buildHero(id: string, color: string, color2: string, team: numbe
     default:
       put(cyl(r * 0.7, r * 0.8, r * 2, 8), c1, 0, 1, 0)
   }
-  void trim
   body.add(weapon)
   g.scale.setScalar(1)
   return { group: g, weapon, body, spin, height, mats: b.mats, update }
@@ -158,7 +152,7 @@ function crescentGeo(w: number, h: number, th: number) {
 /* ----------------------------------------------------------------- PUDGE */
 function heroPudge(c: HCtx): HOut {
   const { b, r, body, weapon } = c
-  const { put, grp, glow, metal, seg, aim } = hkit(c)
+  const { put, grp, glow, metal, seg } = hkit(c)
   const PI = Math.PI
   const skin = b.m('#8aa564')
   const skinD = b.m('#5f7a42')
@@ -330,7 +324,7 @@ function heroPudge(c: HCtx): HOut {
 /* ----------------------------------------------------------------- SNIPER */
 function heroSniper(c: HCtx): HOut {
   const { b, r, body, weapon, c1 } = c
-  const { put, grp, glow, metal, seg, aim } = hkit(c)
+  const { put, grp, glow, metal, seg } = hkit(c)
   const PI = Math.PI
   const skin = b.m('#dba682')
   const leather = b.m('#5a3a1e')
@@ -490,7 +484,7 @@ function heroSniper(c: HCtx): HOut {
 /* ----------------------------------------------------------------- MIRANA */
 function heroMirana(c: HCtx): HOut {
   const { b, r, body, weapon, c1, g } = c
-  const { put, grp, glow, metal, seg, aim } = hkit(c)
+  const { put, grp, glow, seg, aim } = hkit(c)
   const PI = Math.PI
   const skin = b.m('#e8bc9a')
   const hair = b.m('#eef0fb')
@@ -723,7 +717,7 @@ const dark2 = (b: Builder) => b.m('#2a2230')
 /* -------------------------------------------------------------------- AXE */
 function heroAxe(c: HCtx): HOut {
   const { b, r, body, weapon, c1 } = c
-  const { put, grp, glow, metal, seg, aim } = hkit(c)
+  const { put, grp, glow, metal, seg } = hkit(c)
   const PI = Math.PI
   const skin = b.m('#b8472f')
   const skinD = b.m('#8a2f20')
@@ -910,7 +904,6 @@ function heroAxe(c: HCtx): HOut {
       eye.emissiveIntensity = 0.9 + 0.3 * Math.sin(t * 4) + (st.attacking || st.casting ? 1.2 : 0)
       rune.emissiveIntensity = 0.6 + 0.3 * Math.sin(t * 3) + (st.attacking ? 1.6 : st.casting ? 0.9 : 0)
       gem.emissiveIntensity = 0.8 + 0.3 * Math.sin(t * 2.2)
-      void blades
     },
   }
 }
@@ -918,7 +911,7 @@ function heroAxe(c: HCtx): HOut {
 /* ----------------------------------------------------------------- RUBICK */
 function heroRubick(c: HCtx): HOut {
   const { b, r, body, weapon, g } = c
-  const { put, grp, glow, metal, seg } = hkit(c)
+  const { put, grp, glow, seg } = hkit(c)
   const PI = Math.PI
   const skin = b.m('#d8b090')
   const robe = b.m('#6b5a34')

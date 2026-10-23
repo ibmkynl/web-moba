@@ -1,17 +1,13 @@
 import type { AbilityDef, AbilityState, HeroDef, Unit } from './entities'
 import type { World } from './world'
 import { dist, clamp, MAP } from './constants'
-import { L, ang, same, heroesNear } from './abkit'
+import { L, ang, same, heroesNear, predict } from './abkit'
 
 /**
  * New heroes (g4): Earthshaker, Tidehunter, Dragon Knight (STR); Drow Ranger, Phantom Assassin, Bounty Hunter (AGI);
  * Lina, Lion, Zeus (INT). Numbers follow the Dota 2 wiki where feasible and are simplified where the engine cannot express a mechanic.
  */
 
-const predict = (c: Unit, t: Unit, speed: number, k = 0.8) => {
-  const lead = (dist(c, t) / speed) * k
-  return { x: t.x + t.vx * lead, y: t.y + t.vy * lead }
-}
 
 /** Enemies (non-building) inside a rectangle starting at (x,y) pointing along angle a, with their distance along the line. */
 function inLine(w: World, c: Unit, x: number, y: number, a: number, len: number, wid: number) {
@@ -59,7 +55,7 @@ const lineAi = (w: World, c: Unit, st: AbilityState, range: number, speed: numbe
 const FISSURE_DMG = [110, 160, 210, 260]
 const FISSURE_STUN = [0.8, 1, 1.2, 1.4]
 
-export const ES_FISSURE: AbilityDef = {
+const ES_FISSURE: AbilityDef = {
   id: 'earthshaker_fissure', name: 'Fissure', glyph: '⛰', color: '#c8a060',
   behavior: 'point', range: same(4, 1600), castPoint: 0.69, cd: [18, 17, 16, 15], mana: [120, 130, 140, 150], maxLevel: 4,
   desc: 'Slams the ground, creating an impassable ridge of rock that damages and stuns enemies along its length. (The ridge does not block movement here.)',
@@ -86,7 +82,7 @@ export const ES_FISSURE: AbilityDef = {
 
 const TOTEM_PCT = [1, 2, 3, 4]
 
-export const ES_TOTEM: AbilityDef = {
+const ES_TOTEM: AbilityDef = {
   id: 'earthshaker_enchant_totem', name: 'Enchant Totem', glyph: '♜', color: '#e0a050',
   behavior: 'point', range: same(4, 350), noMove: true, castPoint: 0.5, cd: [5, 5, 5, 5], mana: [45, 50, 55, 60], maxLevel: 4,
   desc: 'Earthshaker leaps toward the target point (or stays put) and empowers his next attack, which deals bonus damage.',
@@ -120,7 +116,7 @@ export const ES_TOTEM: AbilityDef = {
 const AS_DMG = [70, 100, 130, 160]
 const AS_STUN = [1, 1.1, 1.2, 1.3]
 
-export const ES_AFTERSHOCK: AbilityDef = {
+const ES_AFTERSHOCK: AbilityDef = {
   id: 'earthshaker_aftershock', name: 'Aftershock', glyph: '〰', color: '#d8b070',
   behavior: 'passive', castPoint: 0, cd: same(4, 0), mana: same(4, 0), maxLevel: 4,
   desc: 'Whenever Earthshaker casts an ability, the ground shakes, damaging and stunning nearby enemies.',
@@ -138,7 +134,7 @@ export const ES_AFTERSHOCK: AbilityDef = {
 const ECHO_INIT = [100, 140, 180]
 const ECHO_DMG = [90, 110, 130]
 
-export const ES_ECHO_SLAM: AbilityDef = {
+const ES_ECHO_SLAM: AbilityDef = {
   id: 'earthshaker_echo_slam', name: 'Echo Slam', glyph: '◎', color: '#ffb050',
   behavior: 'none', castPoint: 0, cd: [150, 200, 250], mana: [145, 205, 265], maxLevel: 3, ult: true,
   desc: 'Shakes the earth, damaging nearby enemies. Every enemy unit hit then sends out an echo that damages every other enemy near it.',
@@ -176,7 +172,7 @@ export const ES_ECHO_SLAM: AbilityDef = {
 const GUSH_DMG = [110, 160, 210, 260]
 const GUSH_ARMOR = [3, 4, 5, 6]
 
-export const TIDE_GUSH: AbilityDef = {
+const TIDE_GUSH: AbilityDef = {
   id: 'tidehunter_gush', name: 'Gush', glyph: '≋', color: '#4ab0e8',
   behavior: 'unit', target: 'enemy', range: same(4, 700), castPoint: 0.3, cd: [12, 12, 12, 12], mana: [100, 105, 110, 115], maxLevel: 4,
   desc: 'Hurls a torrent of water at an enemy unit, dealing damage, slowing it and reducing its armor.',
@@ -204,7 +200,7 @@ const SHELL_BLOCK = [16, 34, 52, 70]
 const SHELL_THRESH = [600, 550, 500, 450]
 const SHELL_RESET = 7
 
-export const TIDE_KRAKEN_SHELL: AbilityDef = {
+const TIDE_KRAKEN_SHELL: AbilityDef = {
   id: 'tidehunter_kraken_shell', name: 'Kraken Shell', glyph: '☗', color: '#5a9a8a',
   behavior: 'passive', castPoint: 0, cd: same(4, 0), mana: same(4, 0), maxLevel: 4,
   desc: 'Tidehunter\'s shell blocks incoming damage. Taking a large amount of damage in a short time purges all negative effects.',
@@ -236,7 +232,7 @@ export const TIDE_KRAKEN_SHELL: AbilityDef = {
 const SMASH_DMG = [45, 90, 135, 180]
 const SMASH_RED = [0.3, 0.4, 0.5, 0.6]
 
-export const TIDE_ANCHOR_SMASH: AbilityDef = {
+const TIDE_ANCHOR_SMASH: AbilityDef = {
   id: 'tidehunter_anchor_smash', name: 'Anchor Smash', glyph: '⚓', color: '#6a8ab0',
   behavior: 'none', castPoint: 0.4, cd: [7, 6, 5, 4], mana: [45, 50, 55, 60], maxLevel: 4,
   desc: 'Tidehunter swings his anchor, damaging nearby enemies and greatly reducing the damage of their attacks.',
@@ -260,7 +256,7 @@ export const TIDE_ANCHOR_SMASH: AbilityDef = {
 const RAVAGE_DMG = [250, 350, 450]
 const RAVAGE_STUN = [2, 2.2, 2.4]
 
-export const TIDE_RAVAGE: AbilityDef = {
+const TIDE_RAVAGE: AbilityDef = {
   id: 'tidehunter_ravage', name: 'Ravage', glyph: '𓆙', color: '#3a8a9a',
   behavior: 'none', castPoint: 0.3, cd: same(3, 150), mana: [125, 225, 325], maxLevel: 3, ult: true,
   desc: 'Giant tentacles erupt from the ground in an expanding ring, stunning and damaging every enemy they reach.',
@@ -291,7 +287,7 @@ export const TIDE_RAVAGE: AbilityDef = {
 const BF_DMG = [80, 160, 240, 320]
 const BF_RED = [0.3, 0.3, 0.3, 0.3]
 
-export const DK_BREATHE_FIRE: AbilityDef = {
+const DK_BREATHE_FIRE: AbilityDef = {
   id: 'dragon_knight_breathe_fire', name: 'Breathe Fire', glyph: '♨', color: '#ff7a30',
   behavior: 'point', range: same(4, 600), castPoint: 0.2, cd: [14, 13, 12, 11], mana: [90, 95, 100, 105], maxLevel: 4,
   desc: 'Breathes a cone of fire, damaging enemies and reducing the damage of their attacks.',
@@ -319,7 +315,7 @@ export const DK_BREATHE_FIRE: AbilityDef = {
 const TAIL_DMG = [70, 100, 130, 160]
 const TAIL_STUN = [1.8, 2, 2.2, 2.4]
 
-export const DK_DRAGON_TAIL: AbilityDef = {
+const DK_DRAGON_TAIL: AbilityDef = {
   id: 'dragon_knight_dragon_tail', name: 'Dragon Tail', glyph: '⟆', color: '#d05a3a',
   behavior: 'unit', target: 'enemy', range: same(4, 150), castPoint: 0, cd: [16, 14, 12, 10], mana: [70, 80, 90, 100], maxLevel: 4,
   desc: 'Slams an enemy unit with his tail, stunning it and dealing damage.',
@@ -341,7 +337,7 @@ export const DK_DRAGON_TAIL: AbilityDef = {
 const DB_ARMOR = [4, 7, 10, 13]
 const DB_REGEN = [4, 7, 10, 13]
 
-export const DK_DRAGON_BLOOD: AbilityDef = {
+const DK_DRAGON_BLOOD: AbilityDef = {
   id: 'dragon_knight_dragon_blood', name: 'Dragon Blood', glyph: '♥', color: '#c0402a',
   behavior: 'passive', castPoint: 0, cd: same(4, 0), mana: same(4, 0), maxLevel: 4,
   desc: 'The blood of dragons grants Dragon Knight bonus armor and health regeneration.',
@@ -364,7 +360,7 @@ const EDF_DMG = [25, 60, 95]
 const EDF_DUR = 60
 const EDF_MS = [30, 35, 40]
 
-export const DK_ELDER_DRAGON: AbilityDef = {
+const DK_ELDER_DRAGON: AbilityDef = {
   id: 'dragon_knight_elder_dragon_form', name: 'Elder Dragon Form', glyph: '🐉', color: '#ff4a2a',
   behavior: 'none', castPoint: 0, cd: same(3, 100), mana: same(3, 50), maxLevel: 3, ult: true,
   desc: 'Transforms into a mighty dragon for 60 seconds with a ranged attack (+350 range), bonus damage and movement speed. Attacks inflict corrosive poison. Level 2: attacks splash for 75% damage. Level 3: attacks also slow movement and attack speed with frost.',
@@ -414,7 +410,7 @@ const FA_DMG = [6, 12, 18, 24]
 const FA_SLOW = [0.1, 0.25, 0.4, 0.55]
 const FA_COST = [9, 10, 11, 12]
 
-export const DROW_FROST_ARROWS: AbilityDef = {
+const DROW_FROST_ARROWS: AbilityDef = {
   id: 'drow_ranger_frost_arrows', name: 'Frost Arrows', glyph: '❄', color: '#8fd8ff',
   behavior: 'toggle', castPoint: 0, cd: same(4, 0), mana: same(4, 0), maxLevel: 4,
   desc: 'Coats arrows in frost (autocast). Each enchanted arrow costs mana, deals bonus damage and slows the target.',
@@ -424,8 +420,6 @@ export const DROW_FROST_ARROWS: AbilityDef = {
       st.extra.init = true
       st.toggled = true
     }
-    void w
-    void c
   },
   onAttackHit(w, a, t, l, st) {
     if (!st.toggled || a.mana < L(FA_COST, l) || t.isBuilding) return 0
@@ -440,7 +434,7 @@ const GUST_SIL = [3, 4, 5, 6]
 const GUST_MS = [0.1, 0.12, 0.14, 0.16]
 const GUST_KB = [0.6, 0.7, 0.8, 0.9]
 
-export const DROW_GUST: AbilityDef = {
+const DROW_GUST: AbilityDef = {
   id: 'drow_ranger_wave_of_silence', name: 'Gust', glyph: '≈', color: '#bfe8ff',
   behavior: 'point', range: same(4, 900), castPoint: 0.25, cd: [19, 17, 15, 13], mana: same(4, 70), maxLevel: 4,
   desc: 'Releases a gust of wind that silences enemies and knocks them back, harder the closer they are. Drow gains bonus movement speed.',
@@ -471,7 +465,7 @@ export const DROW_GUST: AbilityDef = {
 
 const MS_PCT = [1, 1.2, 1.4, 1.6]
 
-export const DROW_MULTISHOT: AbilityDef = {
+const DROW_MULTISHOT: AbilityDef = {
   id: 'drow_ranger_multishot', name: 'Multishot', glyph: '⇶', color: '#9ad0ff',
   behavior: 'point', range: same(4, 900), noMove: true, castPoint: 0, cd: [24, 21, 18, 15], mana: [50, 70, 90, 110], maxLevel: 4,
   desc: 'Channels for 1.75 seconds, loosing three volleys of arrows in a cone toward the target point.',
@@ -517,7 +511,7 @@ const MM_AGI = [0.3, 0.4, 0.5]
 const MM_DMG = [40, 60, 80]
 const MM_CHANCE = [0.2, 0.3, 0.4]
 
-export const DROW_MARKSMANSHIP: AbilityDef = {
+const DROW_MARKSMANSHIP: AbilityDef = {
   id: 'drow_ranger_marksmanship', name: 'Marksmanship', glyph: '◎', color: '#e8e0a0',
   behavior: 'passive', castPoint: 0, cd: same(3, 0), mana: same(3, 0), maxLevel: 3, ult: true,
   desc: 'Drow gains agility. While no enemy hero is within 400 range, 20/30/40% of her attacks deal bonus damage that ignores armor.',
@@ -540,7 +534,7 @@ const SD_PCT = [0.3, 0.45, 0.6, 0.75]
 const SD_RANGE = [700, 850, 1000, 1150]
 const SD_SLOW = [2.2, 2.8, 3.4, 4]
 
-export const PA_STIFLING_DAGGER: AbilityDef = {
+const PA_STIFLING_DAGGER: AbilityDef = {
   id: 'phantom_assassin_stifling_dagger', name: 'Stifling Dagger', glyph: '🗡', color: '#b0b8d0',
   behavior: 'unit', target: 'enemy', range: SD_RANGE, castPoint: 0.3, cd: [6, 6, 6, 6], mana: same(4, 30), maxLevel: 4,
   desc: 'Throws a dagger that slows the target heavily and deals damage.',
@@ -566,7 +560,7 @@ export const PA_STIFLING_DAGGER: AbilityDef = {
 
 const PS_AS = [100, 130, 160, 190]
 
-export const PA_PHANTOM_STRIKE: AbilityDef = {
+const PA_PHANTOM_STRIKE: AbilityDef = {
   id: 'phantom_assassin_phantom_strike', name: 'Phantom Strike', glyph: '✦', color: '#8a7ae0',
   behavior: 'unit', target: 'any', range: same(4, 1000), castPoint: 0.25, cd: [11, 9, 7, 5], mana: [35, 40, 45, 50], maxLevel: 4,
   desc: 'Teleports next to a target unit and, if it is an enemy, attacks it while gaining bonus attack speed.',
@@ -601,7 +595,7 @@ export const PA_PHANTOM_STRIKE: AbilityDef = {
 
 const BLUR_EVA = [0.2, 0.3, 0.4, 0.5]
 
-export const PA_BLUR: AbilityDef = {
+const PA_BLUR: AbilityDef = {
   id: 'phantom_assassin_blur', name: 'Blur', glyph: '◌', color: '#7a6ab0',
   behavior: 'passive', castPoint: 0, cd: same(4, 0), mana: same(4, 0), maxLevel: 4,
   desc: 'Phantom Assassin is difficult to hit, gaining evasion against attacks.',
@@ -614,7 +608,7 @@ export const PA_BLUR: AbilityDef = {
 const CDG_MULT = [2, 3.25, 4.5]
 const CDG_CHANCE = 0.17
 
-export const PA_COUP_DE_GRACE: AbilityDef = {
+const PA_COUP_DE_GRACE: AbilityDef = {
   id: 'phantom_assassin_coup_de_grace', name: 'Coup de Grace', glyph: '☠', color: '#d04a5a',
   behavior: 'passive', castPoint: 0, cd: same(3, 0), mana: same(3, 0), maxLevel: 3, ult: true,
   desc: 'Phantom Assassin\'s attacks have a 17% chance to deal a devastating critical strike.',
@@ -639,7 +633,7 @@ const TRACK_ALLY_GOLD = [40, 80, 120]
 const TRACK_HASTE = [0.16, 0.2, 0.24]
 const ownerTrackLevel = (c: Unit) => c.h?.abilities.find((a) => a.def.id === 'bounty_hunter_track')?.level ?? 0
 
-export const BH_SHURIKEN: AbilityDef = {
+const BH_SHURIKEN: AbilityDef = {
   id: 'bounty_hunter_shuriken_toss', name: 'Shuriken Toss', glyph: '✴', color: '#c8d0e0',
   behavior: 'unit', target: 'enemy', range: SHUR_RANGE, castPoint: 0.3, cd: same(4, 5), mana: [50, 60, 70, 80], maxLevel: 4,
   desc: 'Hurls a spinning shuriken at an enemy unit, dealing magic damage and briefly slowing it. Bounces on to tracked enemies within 1200 and deals bonus damage to tracked targets.',
@@ -677,7 +671,7 @@ const JIN_DMG = [60, 100, 140, 180]
 const JIN_GOLD = [12, 20, 28, 36]
 const JIN_CD = [9, 7, 5, 3]
 
-export const BH_JINADA: AbilityDef = {
+const BH_JINADA: AbilityDef = {
   id: 'bounty_hunter_jinada', name: 'Jinada', glyph: '⚔', color: '#e8c060',
   behavior: 'passive', castPoint: 0, cd: same(4, 0), mana: same(4, 0), maxLevel: 4,
   desc: 'Every few seconds Bounty Hunter\'s next attack deals bonus damage, slows attack speed and steals gold from heroes.',
@@ -701,7 +695,7 @@ const SW_DUR = [20, 25, 30, 35]
 const SW_FADE = [1, 0.75, 0.5, 0.25]
 const SW_STUN = [0.8, 1, 1.2, 1.4]
 
-export const BH_SHADOW_WALK: AbilityDef = {
+const BH_SHADOW_WALK: AbilityDef = {
   id: 'bounty_hunter_wind_walk', name: 'Shadow Walk', glyph: '☾', color: '#6a7a9a',
   behavior: 'none', castPoint: 0, cd: [18, 17, 16, 15], mana: same(4, 55), maxLevel: 4,
   desc: 'Bounty Hunter turns invisible for up to 20/25/30/35 seconds. His next attack from the shadows breaks the effect, stuns the target briefly and deals bonus damage.',
@@ -726,7 +720,7 @@ export const BH_SHADOW_WALK: AbilityDef = {
 }
 
 
-export const BH_TRACK: AbilityDef = {
+const BH_TRACK: AbilityDef = {
   id: 'bounty_hunter_track', name: 'Track', glyph: '◉', color: '#e8c040',
   behavior: 'unit', target: 'enemy', heroOnly: true, range: same(3, 1000), castPoint: 0.3, cd: [6, 5, 4], mana: same(3, 60), maxLevel: 3, ult: true,
   desc: 'Marks an enemy hero for 30 seconds, revealing it even through invisibility. Bounty Hunter moves faster near the mark and crits it; if it dies Bounty Hunter and nearby allied heroes are rewarded with bonus gold.',
@@ -776,7 +770,7 @@ export const BH_TRACK: AbilityDef = {
 const DS_DMG = [75, 150, 225, 300]
 const DS_BURN = [10, 20, 30, 40]
 
-export const LINA_DRAGON_SLAVE: AbilityDef = {
+const LINA_DRAGON_SLAVE: AbilityDef = {
   id: 'lina_dragon_slave', name: 'Dragon Slave', glyph: '🔥', color: '#ff6a2a',
   behavior: 'point', range: same(4, 800), castPoint: 0.45, cd: [11, 10, 9, 8], mana: [100, 115, 130, 145], maxLevel: 4,
   desc: 'Launches a wave of dragon fire that pierces and damages all enemies in its path, then burns them for 3 seconds.',
@@ -808,7 +802,7 @@ export const LINA_DRAGON_SLAVE: AbilityDef = {
 const LSA_DMG = [110, 160, 210, 260]
 const LSA_STUN = [1.3, 1.6, 1.9, 2.2]
 
-export const LINA_LSA: AbilityDef = {
+const LINA_LSA: AbilityDef = {
   id: 'lina_light_strike_array', name: 'Light Strike Array', glyph: '☀', color: '#ffb040',
   behavior: 'point', range: same(4, 700), castPoint: 0.45, cd: [13, 11, 9, 7], mana: [100, 115, 130, 145], maxLevel: 4,
   desc: 'After a short delay, a pillar of fire erupts at the target area, damaging and stunning enemies.',
@@ -839,7 +833,7 @@ export const LINA_LSA: AbilityDef = {
 const FS_AS = [8, 16, 24, 32]
 const FS_MS = [0.01, 0.015, 0.02, 0.025]
 
-export const LINA_FIERY_SOUL: AbilityDef = {
+const LINA_FIERY_SOUL: AbilityDef = {
   id: 'lina_fiery_soul', name: 'Fiery Soul', glyph: '♨', color: '#ff8a3a',
   behavior: 'passive', castPoint: 0, cd: same(4, 0), mana: same(4, 0), maxLevel: 4,
   desc: 'Each ability Lina casts stokes her inner fire, granting stacking attack speed and movement speed for 18 seconds.',
@@ -861,7 +855,7 @@ export const LINA_FIERY_SOUL: AbilityDef = {
 
 const LAG_DMG = [500, 700, 900]
 
-export const LINA_LAGUNA: AbilityDef = {
+const LINA_LAGUNA: AbilityDef = {
   id: 'lina_laguna_blade', name: 'Laguna Blade', glyph: '⚡', color: '#ffe060',
   behavior: 'unit', target: 'enemy', range: same(3, 600), castPoint: 0.45, cd: [70, 60, 50], mana: [150, 300, 450], maxLevel: 3, ult: true,
   desc: 'Fires a devastating bolt of lightning at an enemy unit, dealing massive damage.',
@@ -888,7 +882,7 @@ const SPIKE_DMG = [105, 170, 235, 300]
 const SPIKE_STUN = [1.3, 1.6, 1.9, 2.2]
 const SPIKE_LEN = 925 // cast range 650 + 275 buffer
 
-export const LION_EARTH_SPIKE: AbilityDef = {
+const LION_EARTH_SPIKE: AbilityDef = {
   id: 'lion_impale', name: 'Earth Spike', glyph: '▲', color: '#a0d860',
   behavior: 'point', range: same(4, 650), castPoint: 0.3, cd: [14, 13, 12, 11], mana: [90, 110, 130, 150], maxLevel: 4,
   desc: 'Thrusts a line of spikes through the ground, hurling enemies into the air, damaging and stunning them.',
@@ -914,7 +908,7 @@ export const LION_EARTH_SPIKE: AbilityDef = {
 const HEX_DUR = [2, 2.4, 2.8, 3.2]
 const HEX_RANGE = [550, 575, 600, 625]
 
-export const LION_HEX: AbilityDef = {
+const LION_HEX: AbilityDef = {
   id: 'lion_voodoo', name: 'Hex', glyph: '🐸', color: '#7ad84a',
   behavior: 'unit', target: 'enemy', range: HEX_RANGE, castPoint: 0, cd: [24, 20, 16, 12], mana: [125, 150, 175, 200], maxLevel: 4,
   desc: 'Transforms an enemy unit into a harmless frog: it cannot attack or cast, and its movement speed is greatly reduced.',
@@ -935,7 +929,7 @@ export const LION_HEX: AbilityDef = {
 const DRAIN_RATE = [20, 40, 60, 120]
 const DRAIN_SLOW = [0.15, 0.2, 0.25, 0.3]
 
-export const LION_MANA_DRAIN: AbilityDef = {
+const LION_MANA_DRAIN: AbilityDef = {
   id: 'lion_mana_drain', name: 'Mana Drain', glyph: '☄', color: '#7a9aff',
   behavior: 'unit', target: 'enemy', range: same(4, 850), castPoint: 0.3, cd: [15, 12, 9, 6], mana: same(4, 0), maxLevel: 4,
   desc: 'Drains mana from an enemy unit, slowing it, and gives it to Lion. Channeled for up to 5 seconds; breaks if the target moves beyond 1100 range.',
@@ -976,7 +970,7 @@ export const LION_MANA_DRAIN: AbilityDef = {
 const FOD_DMG = [600, 725, 850]
 const FOD_STACK = [40, 40, 40]
 
-export const LION_FINGER: AbilityDef = {
+const LION_FINGER: AbilityDef = {
   id: 'lion_finger_of_death', name: 'Finger of Death', glyph: '☝', color: '#d040ff',
   behavior: 'unit', target: 'enemy', range: same(3, 900), castPoint: 0.3, cd: [140, 90, 40], mana: [200, 400, 600], maxLevel: 3, ult: true,
   desc: 'Releases a bolt of demonic energy that obliterates an enemy unit. Each hero it kills permanently increases its damage.',
@@ -1009,7 +1003,7 @@ const ARC_DMG = [85, 110, 135, 160]
 const ARC_PCT = [0.03, 0.04, 0.05, 0.06]
 const ARC_BOUNCES = [5, 7, 9, 15]
 
-export const ZEUS_ARC: AbilityDef = {
+const ZEUS_ARC: AbilityDef = {
   id: 'zuus_arc_lightning', name: 'Arc Lightning', glyph: '⌁', color: '#a8d8ff',
   behavior: 'unit', target: 'enemy', range: same(4, 850), castPoint: 0.2, cd: [1.6, 1.6, 1.6, 1.6], mana: [75, 80, 85, 90], maxLevel: 4,
   desc: 'A chain of lightning leaps from the target to nearby enemies, damaging each one for a base amount plus a percentage of its current health.',
@@ -1044,7 +1038,7 @@ export const ZEUS_ARC: AbilityDef = {
 const BOLT_DMG = [125, 200, 275, 350]
 const BOLT_RANGE = [700, 750, 800, 850]
 
-export const ZEUS_BOLT: AbilityDef = {
+const ZEUS_BOLT: AbilityDef = {
   id: 'zuus_lightning_bolt', name: 'Lightning Bolt', glyph: '⚡', color: '#e8f0ff',
   behavior: 'point', range: BOLT_RANGE, castPoint: 0.25, cd: [6, 6, 6, 6], mana: [120, 125, 130, 135], maxLevel: 4,
   desc: 'Calls a bolt down on the target area, striking the nearest enemy unit, dealing damage, briefly stunning and revealing it.',
@@ -1072,7 +1066,7 @@ export const ZEUS_BOLT: AbilityDef = {
 
 const SF_PCT = [0.04, 0.05, 0.06, 0.07]
 
-export const ZEUS_STATIC_FIELD: AbilityDef = {
+const ZEUS_STATIC_FIELD: AbilityDef = {
   id: 'zuus_static_field', name: 'Static Field', glyph: '✺', color: '#b8c8ff',
   behavior: 'passive', castPoint: 0, cd: same(4, 0), mana: same(4, 0), maxLevel: 4,
   desc: 'Whenever Zeus casts an ability, all nearby enemies are shocked for a percentage of their current health.',
@@ -1091,7 +1085,7 @@ export const ZEUS_STATIC_FIELD: AbilityDef = {
 const TW_DMG = [300, 425, 550]
 const TW_PCT = [0.05, 0.075, 0.1]
 
-export const ZEUS_WRATH: AbilityDef = {
+const ZEUS_WRATH: AbilityDef = {
   id: 'zuus_thundergods_wrath', name: "Thundergod's Wrath", glyph: '☈', color: '#ffe86a',
   behavior: 'none', castPoint: 0.4, cd: [120, 120, 120], mana: [250, 375, 500], maxLevel: 3, ult: true,
   desc: 'Strikes every enemy hero on the map with a bolt of lightning, dealing damage and revealing them for a moment.',

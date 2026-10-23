@@ -41,11 +41,6 @@ export interface VfxEvt {
   [k: string]: any
 }
 
-const hex = (c: string, a = 1) => {
-  const col = new THREE.Color(c)
-  return new Vector4(col.r, col.g, col.b, a)
-}
-
 function canvasTex(draw: (g: CanvasRenderingContext2D, s: number) => void, s = 128) {
   const c = document.createElement('canvas')
   c.width = c.height = s
@@ -311,8 +306,6 @@ export class Vfx {
         return
       }
       grp.visible = true
-      const dir = new THREE.Vector3().subVectors(pb, pa)
-      const len = dir.length()
       const place = (m: THREE.Mesh, from: THREE.Vector3, to: THREE.Vector3, w = 1) => {
         const d = new THREE.Vector3().subVectors(to, from)
         const l = d.length()
@@ -335,7 +328,6 @@ export class Vfx {
       } else place(core, pa, pb)
       const fade = k > 0.7 ? 1 - (k - 0.7) / 0.3 : 1
       ;(glow.material as THREE.MeshBasicMaterial).opacity = 0.55 * fade
-      void len
     })
   }
 

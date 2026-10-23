@@ -1,9 +1,9 @@
 import { HEROES } from '../sim/heroes'
+import { LANE_NAME, type Lane } from '../sim/constants'
 import type { NetClient } from '../net/client'
 import { portraitStyle } from './hud'
 import { esc } from './html'
 
-const LANE: Record<string, string> = { top: 'Top', mid: 'Mid', bot: 'Bottom' }
 const ATTRS = [
   { id: 'str', name: 'Strength', cls: 'str' },
   { id: 'agi', name: 'Agility', cls: 'agi' },
@@ -62,7 +62,7 @@ export function showNetLobby(root: HTMLElement, client: NetClient, onLeave: () =
     return `<div class="${cls}" data-seat="${s.seat}" ${other ? 'data-locked="1"' : ''}>
       <div class="np" style="${def ? portraitStyle(def) : ''}">${def ? '' : '<span>?</span>'}${mine ? '<i class="ybadge">YOU</i>' : ''}${s.ready ? '<i class="rbadge">✓</i>' : ''}</div>
       <div class="nt"><b>${s.kind === 'human' ? esc(s.name) : 'Bot'}</b><small>${def ? def.name : s.kind === 'human' ? 'Picking…' : ''}</small></div>
-      <div class="nl ln-${s.lane}">${LANE[s.lane] || ''}</div>
+      <div class="nl ln-${s.lane}">${LANE_NAME[s.lane as Lane] || ''}</div>
       ${s.kind === 'bot' ? '<em class="take">Take seat</em>' : ''}
     </div>`
   }
@@ -113,7 +113,7 @@ export function showNetLobby(root: HTMLElement, client: NetClient, onLeave: () =
           ? `<div class="nl-pick">
               <div class="board">${tiles}</div>
               <div class="nl-ctrl">
-                <div class="nl-lanes">${['top', 'mid', 'bot'].map((l) => `<button data-lane="${l}" class="${mySeat.lane === l ? 'on' : ''}">${LANE[l]}</button>`).join('')}</div>
+                <div class="nl-lanes">${['top', 'mid', 'bot'].map((l) => `<button data-lane="${l}" class="${mySeat.lane === l ? 'on' : ''}">${LANE_NAME[l as Lane]}</button>`).join('')}</div>
                 <button id="nl-ready" class="start ${mySeat.ready ? 'on' : ''}" ${mySeat.hero ? '' : 'disabled'}>${mySeat.ready ? 'READY ✓ (click to cancel)' : mySeat.hero ? 'READY' : 'PICK A HERO'}</button>
                 <button id="nl-stand" class="mini">Stand up</button>
               </div>

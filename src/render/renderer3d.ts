@@ -1,9 +1,9 @@
 import { ROCKS, TREES } from '../sim/obstacles'
 import * as THREE from 'three'
-import { MAP, Pt, TEAM_COLOR, Team } from '../sim/constants'
+import { MAP, Pt, TEAM_COLOR, Team, isNeutral } from '../sim/constants'
 import type { Unit } from '../sim/entities'
 import { RUNE_INFO, reaches, type World } from '../sim/world'
-import { Overlay, Renderer } from './renderer'
+import { Minimap } from './minimap'
 import { buildTerrain } from './terrain3d'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
@@ -14,6 +14,18 @@ import { buildCourier } from './couriers3d'
 import { buildSummon } from './summons3d'
 import { buildNeutral } from './neutrals3d'
 import { Model, buildAncient, buildCreep, buildFountain, buildHero, buildTower } from './models'
+
+export interface Overlay {
+  /** circle drawn around the player (ability range) */
+  rangeCircle?: { r: number; color: string } | null
+  /** target hover highlight */
+  hover?: Unit | null
+  /** ground aoe preview at the cursor */
+  aoe?: { x: number; y: number; r: number; color: string } | null
+  attackMove?: boolean
+  cursor?: Pt
+  line?: { from: Pt; to: Pt; width: number; color: string } | null
+}
 
 const PITCH = (58 * Math.PI) / 180
 export type Quality = 'low' | 'medium' | 'high'
@@ -100,7 +112,7 @@ export class Renderer3D {
   octx: CanvasRenderingContext2D
   fog: HTMLCanvasElement
   fctx: CanvasRenderingContext2D
-  helper: Renderer
+  minimap: Minimap
   dpr = 1
   sun: THREE.DirectionalLight
   hemi: THREE.HemisphereLight
@@ -140,8 +152,7 @@ export class Renderer3D {
     this.fog = document.createElement('canvas')
     this.fctx = this.fog.getContext('2d')!
 
-    // 2D helper paints the ground texture and the minimap
-    this.helper = new Renderer(document.createElement('canvas'), w)
+    this.minimap = new Minimap(w)
 
     this.hemi = new THREE.HemisphereLight('#c8d8ff', '#5a5040', 1.15)
     this.scene.add(this.hemi)
@@ -160,7 +171,7 @@ export class Renderer3D {
     this.scene.add(this.sun)
     this.scene.add(this.sun.target)
 
-    this.helper.groundImg = buildTerrain(this.scene, this.helper)
+    this.minimap.groundImg = buildTerrain(this.scene)
     this.vfx = new Vfx(this.scene)
     this.setupComposer()
     this.resize()
@@ -248,7 +259,7 @@ export class Renderer3D {
 
   /** Sets the route polyline drawn on the minimap. */
   setRoute(r: Pt[] | null) {
-    this.helper.route = r
+    this.minimap.route = r
   }
 
   /**
@@ -258,7 +269,6 @@ export class Renderer3D {
   pickGround(sx: number, sy: number): Pt {
     const g = this.toWorld(sx, sy)
     const o = this.ray.ray.origin
-    const d = this.ray.ray.direction
     let best: Pt | null = null
     let bt = Infinity
     const a = new THREE.Vector3()
@@ -326,9 +336,6 @@ export class Renderer3D {
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0)
   }
 
-  nightAmount() {
-    return this.helper.nightAmount()
-  }
 
   /* -------------------------------------------------------- unit models */
 
@@ -344,7 +351,7 @@ export class Renderer3D {
       case 'hero':
         return buildHero(u.h!.def.id, u.h!.def.color, u.h!.def.color2, u.team, u.radius)
       case 'creep':
-        return (u.team as number) === 2 ? buildNeutral(u.sub, u.radius) : buildCreep(u.sub, u.team, u.radius)
+        return isNeutral(u.team) ? buildNeutral(u.sub, u.radius) : buildCreep(u.sub, u.team, u.radius)
       case 'courier':
         return buildCourier(u.team, u.radius)
       case 'summon':
@@ -538,14 +545,12 @@ export class Renderer3D {
       }
       if (b.invuln || b.immune || b.spellBlock || b.lift || b.ethereal) shellCol = b.color || (b.spellBlock ? '#bff0ff' : b.ethereal ? '#d8f0ff' : '#ffe9a8')
       if (!heroish) continue
-      const at = this.posOf(u)
       if (b.slow) this.vfx.spawn({ name: 'aura', kind: 'frost', unit: u, x: u.x, y: u.y, z: 10, dur: 0.3, color: '#bfe8ff' }, this.posOf)
       if (b.dot) this.vfx.spawn({ name: 'aura', kind: 'fire', unit: u, x: u.x, y: u.y, dur: 0.3, color: col, color2: '#ff4a20' }, this.posOf)
       if (b.silence) this.vfx.spawn({ name: 'aura', kind: 'wisp', unit: u, x: u.x, y: u.y, dur: 0.3, color: '#c8a0ff' }, this.posOf)
       if (b.haste && b.haste > 0.15) this.vfx.spawn({ name: 'aura', kind: 'streak', unit: u, x: u.x, y: u.y, dur: 0.3, color: col }, this.posOf)
       if (b.regenHp && b.regenHp > 4) this.vfx.spawn({ name: 'sparkle', x: u.x, y: u.y, z: H * 0.5, color: '#7aff9a', count: 4, r: 40 })
       if (b.dmgMul) this.vfx.spawn({ name: 'aura', kind: 'fire', unit: u, x: u.x, y: u.y, dur: 0.3, color: '#ff6a3a', color2: '#ffcf5a' }, this.posOf)
-      void at
     }
     // protective shell
     if (shellCol) {
@@ -754,7 +759,7 @@ export class Renderer3D {
     this.placeCamera()
     this.updateAffine()
     // lighting follows the camera target, tinted at night
-    const night = this.nightAmount()
+    const night = w.nightAmount()
     const d = new THREE.Vector3(-900, 1700, 900)
     this.sun.position.set(this.cam.x + d.x, d.y, this.cam.y + d.z)
     this.sun.target.position.set(this.cam.x, 0, this.cam.y)
@@ -775,20 +780,19 @@ export class Renderer3D {
     this.vfx.update(dtv)
     this.composer.render()
 
-    // sync helper for the minimap
-    const h = this.helper
-    h.cam = this.cam
-    h.W = this.W
-    h.H = this.H
-    h.scale = this.scale * 0.8
-    h.myTeam = this.myTeam
-    void w
+    // the minimap's camera rectangle follows the main view
+    const mm = this.minimap
+    mm.cam = this.cam
+    mm.W = this.W
+    mm.H = this.H
+    mm.scale = this.scale * 0.8
+    mm.myTeam = this.myTeam
 
     this.drawOverlay(ov)
   }
 
   drawMinimap(c: CanvasRenderingContext2D, size: number) {
-    this.helper.drawMinimap(c, size)
+    this.minimap.drawMinimap(c, size)
   }
 
   /* ----------------------------------------------------------- overlay */
@@ -899,21 +903,6 @@ export class Renderer3D {
       c.lineWidth = lw(3)
       c.stroke()
     }
-    // ring fx
-    for (const f of w.fxs) {
-      const k = (w.time - f.t0) / f.dur
-      if (k < 0 || k > 1 || f.k !== 'ring') continue
-      c.beginPath()
-      c.arc(f.x!, f.y!, f.r0! + (f.r1! - f.r0!) * k, 0, Math.PI * 2)
-      c.globalAlpha = 1 - k
-      c.strokeStyle = f.color || '#fff'
-      c.lineWidth = lw(f.width || 3)
-      c.stroke()
-      c.globalAlpha = (1 - k) * 0.18
-      c.fillStyle = f.color || '#fff'
-      c.fill()
-      c.globalAlpha = 1
-    }
 
     // ---- screen-space layer
     this.screenT(c)
@@ -928,7 +917,7 @@ export class Renderer3D {
       const s = S(u.x, u.y, hgt)
       if (s.x < -80 || s.x > this.W + 80 || s.y < -80 || s.y > this.H + 80) continue
       const friend = u.team === this.myTeam
-      const col = (u.team as number) === 2 ? '#e0a23a' : friend ? '#4fd04f' : '#e04a3a'
+      const col = isNeutral(u.team) ? '#e0a23a' : friend ? '#4fd04f' : '#e04a3a'
       if (u.kind === 'hero') {
         const wd = Math.max(70, Math.min(130, ppu * 190))
         this.bar(c, s.x, s.y - 14, wd, 11, u.hp / u.st.maxHp, col)
@@ -1012,7 +1001,7 @@ export class Renderer3D {
     this.drawFog(c)
 
     // night tint + vignette
-    const night = this.nightAmount()
+    const night = w.nightAmount()
     if (night > 0.01) {
       c.fillStyle = `rgba(30,50,140,${0.07 * night})`
       c.fillRect(0, 0, this.W, this.H)

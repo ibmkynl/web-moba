@@ -1,12 +1,11 @@
 import type { AbilityDef, HeroDef, Unit } from './entities'
-import { L, ang, same, heroesNear } from './abkit'
+import { L, ang, same, heroesNear, clampMap } from './abkit'
 import type { World } from './world'
 import { dist } from './constants'
 
 /* Windranger, Anti-Mage, Riki. Numbers follow the current Dota 2 wiki. */
 
 const adiff = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)))
-const clampMap = (v: number) => Math.max(40, Math.min(9560, v))
 const lowest = (us: Unit[]) => us.slice().sort((a, b) => a.hp - b.hp)[0]
 
 /* -------------------------------------------------------------- WINDRANGER */
@@ -33,7 +32,7 @@ const SHACKLESHOT: AbilityDef = {
     }
     const full = L([1.6, 2.1, 2.6, 3.1], l)
     w.interrupt(tg)
-    w.fx({ k: 'line', x1: c.x, y1: c.y, x2: tg.x, y2: tg.y, dur: 0.25, color: '#b8f090', width: 6 })
+    w.vfx('beam', { x: c.x, y: c.y, x2: tg.x, y2: tg.y, dur: 0.25, color: '#b8f090', width: 8.4 })
     if (sec) {
       w.interrupt(sec)
       w.addBuff(tg, { id: 'shackle', expires: w.time + full, stun: true, src: c, color: '#8ad06a', label: 'Shackled' })
@@ -135,7 +134,7 @@ const FOCUS_FIRE: AbilityDef = {
     st.extra.focus = { target: tg, until: w.time + 20 }
     w.addBuff(c, { id: 'focus_fire', expires: w.time + 20, as: L([350, 425, 500], l), dmgReduce: 0.3, color: '#f0e070', label: 'Focus Fire' })
     w.vfx('windranger_focus', { x: tg.x, y: tg.y, unit: tg, src: c, dur: 20, stop: () => c.dead || !c.hasBuff('focus_fire') })
-    w.fx({ k: 'line', x1: c.x, y1: c.y, x2: tg.x, y2: tg.y, dur: 0.3, color: '#f0e070', width: 5 })
+    w.vfx('beam', { x: c.x, y: c.y, x2: tg.x, y2: tg.y, dur: 0.3, color: '#f0e070', width: 7 })
     if (w.canAttackTarget(c, tg)) c.order = { t: 'attack', target: tg }
   },
   tick(w, c, l, dt, st) {

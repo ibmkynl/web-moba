@@ -142,7 +142,7 @@ function buffSnap(b: Buff) {
 
 const abSnap = (a: AbilityState): AbSnap => ({ i: a.def.id, lv: a.level, cd: +a.cdUntil.toFixed(2), ch: a.charges, ca: +a.chargeAt.toFixed(2), tg: a.toggled ? 1 : 0, ex: a.expires || undefined })
 
-export function unitSnap(u: Unit): UnitSnap {
+function unitSnap(u: Unit): UnitSnap {
   const s: UnitSnap = {
     id: u.id, tm: u.team, k: u.kind, sb: u.sub, nm: u.name, r: u.radius,
     x: +u.x.toFixed(1), y: +u.y.toFixed(1), f: +u.facing.toFixed(2), vx: Math.round(u.vx), vy: Math.round(u.vy),
@@ -253,7 +253,6 @@ export class Replica {
   delay = 0.1
   private recvAt = 0
   private snapT = 0
-  private nextPowerFrom = 0
 
   constructor() {
     this.world = new World({ playerHero: 'pudge', playerLane: 'mid' }, true)
@@ -429,7 +428,6 @@ export class Replica {
     }
     if (w.vfxQ.length > 200) w.vfxQ.splice(0, w.vfxQ.length - 200)
     // team-wide gold/xp popups etc come through txt events
-    void this.nextPowerFrom
   }
 
   private findAbility(u: Unit, id: string): AbilityState | null {

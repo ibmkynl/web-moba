@@ -9,13 +9,13 @@
  */
 import zlib from 'node:zlib'
 import { World } from '../src/sim/world'
+import { STEP } from '../src/sim/constants'
 import { HEROES } from '../src/sim/heroes'
 import { snapshotFor } from '../src/net/snapshot'
 
 const minutes = Number(process.argv.find((a) => /^\d+$/.test(a)) ?? 20)
 const PHASES = process.argv.includes('--phases')
 const SNAP = process.argv.includes('--snap')
-const STEP = 1 / 60
 
 const ids = HEROES.map((h) => h.id)
 const lanes = ['top', 'mid', 'bot', 'mid', 'bot'] as const

@@ -55,3 +55,53 @@ export function teamRing(b: Builder, g: THREE.Group, r: number, team: number) {
   g.add(ring)
 }
 
+export type HeroModelFn = (id: string, color: string, color2: string, team: number, r: number) => Model
+
+type Vec3 = [number, number, number]
+
+/**
+ * Shared hero-model scaffolding: builder, group, body and weapon pivots, plus helpers that position meshes in units of r
+ * (+x forward, y up, z lateral). `glowDefault` is the default emissive intensity of `glow` materials.
+ */
+export function makeScaffold(team: number, r: number, glowDefault = 0.8) {
+  const b = new Builder()
+  const g = new THREE.Group()
+  teamRing(b, g, r, team)
+  const body = new THREE.Group()
+  g.add(body)
+  const weapon = new THREE.Group()
+  const glow = (c: string, i = glowDefault) => b.m(c, { emissive: new THREE.Color(c), emissiveIntensity: i })
+  const metal = (c: string) => b.m(c, { metalness: 0.65, roughness: 0.35 })
+  const dbl = (c: string, o: Partial<THREE.MeshStandardMaterialParameters> = {}) => b.m(c, { side: THREE.DoubleSide, ...o })
+  /** The 7th argument is a parent (default: body) or, as a shorthand, a scale. */
+  const put = (
+    geo: THREE.BufferGeometry,
+    mt: THREE.Material,
+    x: number,
+    y: number,
+    z: number,
+    rot: Vec3 = [0, 0, 0],
+    parentOrScale?: THREE.Object3D | Vec3,
+    sc0?: Vec3,
+  ) => {
+    const parent = parentOrScale instanceof THREE.Object3D ? parentOrScale : body
+    const sc = Array.isArray(parentOrScale) ? parentOrScale : sc0
+    const me = b.mesh(geo, mt, x * r, y * r, z * r, parent)
+    me.rotation.set(rot[0], rot[1], rot[2])
+    if (sc) me.scale.set(sc[0], sc[1], sc[2])
+    return me
+  }
+  /** An empty group at (x, y, z) in units of r, used as an animation pivot. */
+  const piv = (x: number, y: number, z: number, parent: THREE.Object3D = body) => {
+    const gr = new THREE.Group()
+    gr.position.set(x * r, y * r, z * r)
+    parent.add(gr)
+    return gr
+  }
+  const tor = (rad: number, tube: number, seg = 12) => new THREE.TorusGeometry(r * rad, r * tube, 5, seg)
+  const finish = (height: number, update?: Model['update']): Model => {
+    body.add(weapon)
+    return { group: g, weapon, body, height, mats: b.mats, update }
+  }
+  return { b, g, body, weapon, glow, metal, dbl, put, piv, tor, finish, r }
+}

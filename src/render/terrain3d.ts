@@ -1,58 +1,12 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { BASE_POS, CAMPS, FOUNTAIN_POS, LANES, MAP, PATHS, POWER_RUNES, Path, Pt, T4_POS, TRAILS, WALLS, WALL_R, mirror } from '../sim/constants'
-import { ROCKS, TREES } from '../sim/obstacles'
-import type { Renderer } from './renderer'
+import { BASE_POS, CAMPS, FOUNTAIN_POS, LANES, MAP, PATHS, POWER_RUNES, Pt, T4_POS, TRAILS, WALLS, mirror } from '../sim/constants'
+import { LANE_PATHS, RIVER, RIVER_PATH, ROCKS, TREES, baseDist, fountainDist, laneDist, mulberry, riverDist } from '../sim/obstacles'
 
 /* ------------------------------------------------------------------ shared */
 
-/** The river centre line (same curve the 2D minimap uses). */
-const RIVER: Pt[] = []
-for (let i = -2; i <= 22; i++) {
-  const t = i / 20
-  const base = t * MAP
-  const wob = Math.sin(t * 9) * 260
-  RIVER.push({ x: base - wob * 0.7, y: base + wob * 0.7 })
-}
-const RIVER_PATH = new Path(RIVER)
-const LANE_PATHS = LANES.map((l) => PATHS[0][l])
-const TRAIL_PATHS = TRAILS.map((t) => new Path(t))
 const WATER_HALF = 285
-
-function rng(seed: number) {
-  let s = seed | 0
-  return () => {
-    s = (s + 0x6d2b79f5) | 0
-    let t = Math.imul(s ^ (s >>> 15), 1 | s)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-
-const laneDist = (x: number, y: number) => {
-  const p = { x, y }
-  let d = Infinity
-  for (const l of LANE_PATHS) d = Math.min(d, l.distTo(p))
-  return d
-}
-const riverDist = (x: number, y: number) => RIVER_PATH.distTo({ x, y })
-const baseDist = (x: number, y: number) => Math.min(Math.hypot(x - BASE_POS[0].x, y - BASE_POS[0].y), Math.hypot(x - BASE_POS[1].x, y - BASE_POS[1].y))
-const nearTrail = (x: number, y: number, d: number) => {
-  const p = { x, y }
-  for (const t of TRAIL_PATHS) if (t.distTo(p) < d) return true
-  return false
-}
-const nearWall = (x: number, y: number, d: number) => {
-  if (!((x < 3400 && y > 6200) || (x > MAP - 3400 && y < 3400))) return false
-  for (const w of WALLS) {
-    const dx = w.b.x - w.a.x, dy = w.b.y - w.a.y
-    const l2 = dx * dx + dy * dy || 1
-    const t = Math.max(0, Math.min(1, ((x - w.a.x) * dx + (y - w.a.y) * dy) / l2))
-    if (Math.hypot(x - (w.a.x + dx * t), y - (w.a.y + dy * t)) < d) return true
-  }
-  return false
-}
-const fountainDist = (x: number, y: number) => Math.min(Math.hypot(x - FOUNTAIN_POS[0].x, y - FOUNTAIN_POS[0].y), Math.hypot(x - FOUNTAIN_POS[1].x, y - FOUNTAIN_POS[1].y))
+const rng = mulberry
 
 interface Item {
   x: number
@@ -227,13 +181,13 @@ function makePlan(): Plan {
 /* --------------------------------------------------------------------- entry */
 
 /** Builds the static 3D map (ground, water, border mountains, trees, props) into the scene. */
-export function buildTerrain(scene: THREE.Scene, helper: Renderer): HTMLCanvasElement {
+export function buildTerrain(scene: THREE.Scene): HTMLCanvasElement {
   const plan = makePlan()
   const tick: Array<(t: number) => void> = []
   const groundCanvas = buildGround(scene, plan)
   buildWater(scene, tick)
   buildMountains(scene)
-  buildTrees(scene, helper, plan)
+  buildTrees(scene)
   buildRocks(scene, plan)
   buildGroundCover(scene, plan)
   buildBases(scene)
@@ -750,7 +704,7 @@ function spikyGeo() {
   return merge(parts)
 }
 
-function buildTrees(scene: THREE.Scene, helper: Renderer, plan: Plan) {
+function buildTrees(scene: THREE.Scene) {
   const list = TREES
   const mat = vcMat()
   const sets: Item[][] = [[], [], [], []]

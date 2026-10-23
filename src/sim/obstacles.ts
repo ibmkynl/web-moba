@@ -4,7 +4,8 @@
  */
 import { BASE_POS, CAMPS, FOUNTAIN_POS, LANES, MAP, PATHS, POWER_RUNES, Path, Pt, T3_POS, T4_POS, TOWER_ARCS, TRAILS, WALLS, mirror } from './constants'
 
-function mulberry(seed: number) {
+/** Deterministic seeded random generator (mulberry32). */
+export function mulberry(seed: number) {
   let s = seed | 0
   return () => {
     s = (s + 0x6d2b79f5) | 0
@@ -23,19 +24,21 @@ for (let i = -2; i <= 22; i++) {
   RIVER.push({ x: base - wob * 0.7, y: base + wob * 0.7 })
 }
 export const RIVER_PATH = new Path(RIVER)
-const LANE_PATHS = LANES.map((l) => PATHS[0][l])
+export const LANE_PATHS = LANES.map((l) => PATHS[0][l])
 const TRAIL_PATHS = TRAILS.map((t) => new Path(t))
 
-const laneDist = (x: number, y: number) => {
+/* distance helpers shared with the 3D terrain builder */
+export const laneDist = (x: number, y: number) => {
   const p = { x, y }
   let d = Infinity
   for (const l of LANE_PATHS) d = Math.min(d, l.distTo(p))
   return d
 }
-const riverDist = (x: number, y: number) => RIVER_PATH.distTo({ x, y })
-const baseDist = (x: number, y: number) => Math.min(Math.hypot(x - BASE_POS[0].x, y - BASE_POS[0].y), Math.hypot(x - BASE_POS[1].x, y - BASE_POS[1].y))
-const fountainDist = (x: number, y: number) => Math.min(Math.hypot(x - FOUNTAIN_POS[0].x, y - FOUNTAIN_POS[0].y), Math.hypot(x - FOUNTAIN_POS[1].x, y - FOUNTAIN_POS[1].y))
+export const riverDist = (x: number, y: number) => RIVER_PATH.distTo({ x, y })
+export const baseDist = (x: number, y: number) => Math.min(Math.hypot(x - BASE_POS[0].x, y - BASE_POS[0].y), Math.hypot(x - BASE_POS[1].x, y - BASE_POS[1].y))
+export const fountainDist = (x: number, y: number) => Math.min(Math.hypot(x - FOUNTAIN_POS[0].x, y - FOUNTAIN_POS[0].y), Math.hypot(x - FOUNTAIN_POS[1].x, y - FOUNTAIN_POS[1].y))
 const nearTrail = (x: number, y: number, d: number) => TRAIL_PATHS.some((t) => t.distTo({ x, y }) < d)
+/** Within `d` of a base cliff wall (the walls only exist in the two base corners). */
 const nearWall = (x: number, y: number, d: number) => {
   for (const w of WALLS) {
     const dx = w.b.x - w.a.x
@@ -48,7 +51,7 @@ const nearWall = (x: number, y: number, d: number) => {
 }
 
 /** Where each lane comes closest to the river (kept free of clutter so heroes can cross). */
-export const FORDS: Pt[] = LANE_PATHS.map((path) => {
+const FORDS: Pt[] = LANE_PATHS.map((path) => {
   let best = Infinity
   let bp = path.pts[0]
   for (let s = 0; s <= path.len; s += 20) {
@@ -62,7 +65,7 @@ export const FORDS: Pt[] = LANE_PATHS.map((path) => {
   return bp
 })
 /** Every tower, ancient and fountain (both teams): nothing may be generated on or next to them. */
-export const STRUCTURES: Pt[] = (() => {
+const STRUCTURES: Pt[] = (() => {
   const out: Pt[] = [...BASE_POS, ...FOUNTAIN_POS]
   for (const team of [0, 1] as const) {
     for (const lane of LANES) {
@@ -210,7 +213,7 @@ export interface Circle {
   r: number
 }
 /** Solid footprints: rocks block with most of their width, trees only with their trunk. */
-export const SOLIDS: Circle[] = [
+const SOLIDS: Circle[] = [
   ...ROCKS.map((o) => ({ x: o.x, y: o.y, r: o.w * 0.78 })),
   ...TREES.map((t) => ({ x: t.x, y: t.y, r: t.r * 0.42 })),
 ]

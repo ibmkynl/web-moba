@@ -1,4 +1,4 @@
-import { Lane, LANES, PATHS, Pt, Team, TOWER_ARCS, dist } from './constants'
+import { Lane, LANES, PATHS, Pt, Team, dist } from './constants'
 import type { Unit } from './entities'
 import type { World } from './world'
 
@@ -253,6 +253,5 @@ export class TeamBrain {
         give(squad, { kind: 'push', x: tower.x, y: tower.y, phase: 'go', towerId: tower.id })
       } else give(squad, { kind: 'push', x: p.x, y: p.y, phase: 'rally' })
     }
-    void mine
   }
 }

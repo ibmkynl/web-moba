@@ -1,44 +1,9 @@
 import * as THREE from 'three'
-import { Builder, Model, box, cone, cyl, sph, teamRing } from './modelkit'
-
-export type HeroModelFn = (id: string, color: string, color2: string, team: number, r: number) => Model
+import { type HeroModelFn, Model, box, cone, cyl, makeScaffold, sph } from './modelkit'
 
 const PI = Math.PI
 
-/** Shared scaffold (same conventions as heroes3d_g3): builder, groups, `put` positions in units of r, +x is "forward". */
-function scaffold(team: number, r: number) {
-  const b = new Builder()
-  const g = new THREE.Group()
-  teamRing(b, g, r, team)
-  const body = new THREE.Group()
-  g.add(body)
-  const weapon = new THREE.Group()
-  const glow = (c: string, i = 0.8) => b.m(c, { emissive: new THREE.Color(c), emissiveIntensity: i })
-  const put = (
-    geo: THREE.BufferGeometry,
-    mt: THREE.Material,
-    x: number,
-    y: number,
-    z: number,
-    rot: [number, number, number] = [0, 0, 0],
-    parent: THREE.Object3D = body,
-    sc?: [number, number, number],
-  ) => {
-    const me = b.mesh(geo, mt, x * r, y * r, z * r, parent)
-    me.rotation.set(rot[0], rot[1], rot[2])
-    if (sc) me.scale.set(sc[0], sc[1], sc[2])
-    return me
-  }
-  const piv = (x: number, y: number, z: number, parent: THREE.Object3D = body) => {
-    const gr = new THREE.Group()
-    gr.position.set(x * r, y * r, z * r)
-    parent.add(gr)
-    return gr
-  }
-  const tor = (rad: number, tube: number, seg = 12) => new THREE.TorusGeometry(r * rad, r * tube, 5, seg)
-  const S = { b, g, body, weapon, glow, put, piv, tor, r }
-  return S
-}
+const scaffold = makeScaffold
 type S = ReturnType<typeof scaffold>
 
 /** Two walking legs (pivots at hip height `y`, +-z apart). Thigh + shin + boot + knee guard. */
@@ -288,7 +253,6 @@ function dragonKnight(_id: string, _c1: string, _c2: string, team: number, r: nu
   const gold = b.m('#e0b84a', { metalness: 0.6, roughness: 0.3 })
   const cloth = b.m('#5a1a14')
   const skin = b.m('#e8c4a0')
-  const hair = b.m('#7a4a20')
   const ember = glow('#ff7a2a', 1.2)
   const capeM = b.m('#a82820', { side: THREE.DoubleSide })
 

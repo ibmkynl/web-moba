@@ -1,13 +1,7 @@
 import { AbilityDef, AbilityState, Unit } from './entities'
-import type { World } from './world'
 import { dist } from './constants'
 
-const L = (arr: number[], l: number) => arr[Math.max(0, Math.min(arr.length, l) - 1)]
-const ang = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.atan2(b.y - a.y, b.x - a.x)
-const same = (n: number, x: number) => [x, x, x, x].slice(0, n)
-
-/** Hero targets (visible, hittable) near caster. */
-const heroesNear = (w: World, c: Unit, r: number) => w.enemyHeroesNear(c, r)
+import { L, ang, same, heroesNear } from './abkit'
 
 /* ------------------------------------------------------------------ PUDGE */
 
