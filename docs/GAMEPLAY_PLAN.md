@@ -1,6 +1,6 @@
 # Gameplay plan: Glyph, backdoor, buyback, death gold, camps, siege, high ground, Roshan
 
-Status: plan only, nothing implemented. Written against the code at commit `123981e`.
+Status: **implemented** on branch `feature/gameplay-plan` (see "What shipped, and where it differs from this plan" at the end). Written against the code at commit `123981e`.
 
 ## Decisions (settled)
 
@@ -567,3 +567,16 @@ the sim parts.
 parallel split: {1 gold, 2 buyback} on the economy code (`gold`, `heroDied`, `buyItem`, `stepRespawn`); {6 vision} on
 `computeVision`; {7 camps} on `spawnCamps` + `neutralAI`; {5 siege} on `spawnCreep`/`spawnWave`/`creepAI`.
 Roshan and Glyph/backdoor touch `kill()`/`damage()`, so land them after the others rather than alongside.
+
+## What shipped, and where it differs from this plan
+
+Everything above was built and tested (`npm run test:sim`, new groups: `goldloss`, `buyback`, `glyph`, `backdoor`, `siege`, `highground`, `camps`, `roshan`, `map`). Differences from the plan as written:
+
+- **Order.** The sim features were done first and the HUD rework in one pass afterwards, instead of HUD first. The Glyph and Buyback buttons were added to the new layout in that pass.
+- **Map.** Changed: rounded lane corners, a wider river that starts in Roshan's pit and ends in a pool short of the map corners (so only the mid lane has a ford), `heightAt` relief (river bed, mid-lane valley, the pit, never above 0), the two power-rune spots moved onto the new river, Roshan's pit with a rock ring, rounded river ends. **Not changed:** camp count and tiers, the dirt trails, the bounty-rune spots and the base walls (the base already has three ramps and a chamfered mid-lane corner). The edge-area camps were skipped as noted in section 10.
+- **Camp stack badge** (optional in section 7) was not added; stacks show as the extra monsters standing in the camp.
+- **Vision.** High ground is the two base plateaus only. Buildings stay visible from low ground, so a team can still hit towers up the cliff.
+- **Glyph** protects buildings only (no lane-creep protection, no multi-target towers).
+- **Siege creeps** spawn at the lane's start (there are no barracks) and use the same 7:30 upgrade steps as the other lane creeps.
+- **HUD.** Kept as in the table in section 9. The quick-buy row is the existing recommended-item row. Hero stats appear on hover over the "Hero stats" button. Skipped: Scan, Talents, backpack, neutral item slot, courier controls, scepter/shard status, cosmetics, voice subtitles.
+- **Screenshots.** All gameplay screenshots in `docs/screenshots/` were regenerated at 1600x900 from the new build (the title, hero picker, loading, shop and per-hero images did not change). New ones: `roshan`, `siege-creep`, `glyph`, `buyback`.

@@ -450,6 +450,12 @@ const tests: Record<string, () => void> = {
     const s = w.heroes.find((h) => h.team === 0)!; const summon = Object.assign(Object.create(s), { kind: 'summon', team: 0 })
     c2.dead = true; run(w, 5)
     const h1 = t2.hp; w.damage(summon, t2, 200, 'pure'); ok('summons deal 25%', Math.abs(h1 - t2.hp - 50) < 1e-6, `${h1 - t2.hp}`)
+    // the flag reaches the client so the info panel can show it
+    t2.bdp = true
+    const enc = new SnapshotEncoder(), dec = new SnapshotDecoder(), rep = new Replica()
+    const d = dec.decode(JSON.parse(JSON.stringify(enc.encode(snapshotFor(w, 0, w.player.id, 1, { sfx: [], ann: [], txt: [], vfx: [] } as any, new Frame())))))
+    if (d) rep.apply(d, 1000)
+    ok('snapshot carries the backdoor flag', rep.world.units.find((u) => u.id === t2.id)?.bdp === true)
   },
   siege() {
     const w = fresh(); freeze(w)
