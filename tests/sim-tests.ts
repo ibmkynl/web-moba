@@ -369,7 +369,9 @@ const tests: Record<string, () => void> = {
     ok('items are kept and earned (GPM) is unchanged', p.h!.items.filter(Boolean).length === items0 && p.h!.earned === 5000)
     const w2 = fresh(); clearCreeps(w2); freeze(w2); const q = place(w2, 3000, 3000); q.h!.gold = 0
     w2.kill(q, null)
-    ok('no gold stays at 0', q.h!.gold === 0)
+    ok('no gold stays at 0 and the shown loss is 0', q.h!.gold === 0 && q.h!.goldLost === 0)
+    q.h!.respawnAt = w2.time; w2.tick(STEP); q.h!.gold = 500; w2.kill(q, null); w2.tick(STEP); q.h!.respawnAt = w2.time; w2.tick(STEP); w2.kill(q, null)
+    ok('goldLost is refreshed on every death', q.h!.goldLost === 120, `${q.h!.goldLost}`)
     const w3 = fresh(); clearCreeps(w3); freeze(w3); const r = place(w3, 3000, 3000); r.h!.gold = 1000
     const tw = w3.towers.find((t) => t.team === 1)!; w3.kill(r, tw)
     ok('a tower kill costs 40% too', r.h!.gold === 600)

@@ -1196,9 +1196,9 @@ export class World implements WorldView {
     hs.respawnAt = this.time + 6 + hs.level * 2.8
     // dying costs a share of the gold on hand (items are kept); taken before any kill reward is worked out
     const lost = Math.floor(hs.gold * RULES.deathGoldLoss)
+    hs.gold -= lost
+    hs.goldLost = lost
     if (lost > 0) {
-      hs.gold -= lost
-      hs.goldLost = lost
       if (hs.isHuman) this.text(t.x, t.y - 60, `-${lost}`, '#ff6a5a', 18, { hero: t.id, only: true })
     }
     // who gets the credit: the enemy hero that landed the blow; if creeps or a tower did, the last hero that damaged the
@@ -1806,11 +1806,6 @@ export class World implements WorldView {
       if (inside(u.x, u.y)) return true
     }
     return this.wards.some((wd) => inside(wd.x, wd.y))
-  }
-
-  /** Number of packs a camp currently holds (more than one means it has been stacked). */
-  campStacks(c: { members: Unit[] }, packSize: number) {
-    return Math.ceil(c.members.filter((m) => !m.dead).length / packSize)
   }
 
   private spawnCamps() {

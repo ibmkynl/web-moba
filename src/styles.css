@@ -248,18 +248,13 @@ kbd {
   color: var(--gold3);
   letter-spacing: 1px;
 }
-#clock .ping-live {
-  font-size: 12px;
-  color: var(--muted);
-  letter-spacing: 1px;
-}
-#clock .ping-live.good {
+#netinfo .ping-live.good {
   color: #6fe06f;
 }
-#clock .ping-live.ok {
+#netinfo .ping-live.ok {
   color: #e8c860;
 }
-#clock .ping-live.bad {
+#netinfo .ping-live.bad {
   color: #e8564a;
 }
 #clock .dn {
@@ -3754,12 +3749,6 @@ kbd {
   background: rgba(8, 9, 11, 0.55);
   border: 1px solid #3a3018;
   pointer-events: none;
-}
-#netinfo .ping-live {
-  position: static;
-}
-#clock .ping-live {
-  display: none;
 }
 .hslot .ult {
   position: absolute;

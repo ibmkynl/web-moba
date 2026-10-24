@@ -515,7 +515,7 @@ export class Hud {
       <div class="shop-head"><h3>Shop</h3><span class="shop-gold"><span class="coin"></span>${Math.floor(hs.gold)}</span>
         <button class="x" id="shop-close">✕</button></div>
       <div class="tabs">${cats.map((c) => `<button data-c="${c}" class="${c === this.shopCat ? 'on' : ''}">${c === 'all' ? 'All' : c[0].toUpperCase() + c.slice(1)}</button>`).join('')}</div>
-      <div class="grid">${ITEMS.filter((i) => this.shopCat === 'all' || i.cat === this.shopCat)
+      <div class="grid">${ITEMS.filter((i) => !i.noShop && (this.shopCat === 'all' || i.cat === this.shopCat))
         .map(
           (i) => `<div class="sitem ${hs.gold < i.cost ? 'poor' : ''}" data-id="${i.id}">
             <div class="ic" style="--c:${i.color}">${itemIcon(i.id)}</div><div class="nm">${i.name}</div><div class="pr"><span class="coin"></span>${i.cost}</div></div>`,

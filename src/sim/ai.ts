@@ -356,7 +356,7 @@ function lateShopping(w: World, u: Unit, b: Brain) {
     // cheap items the bot is willing to trade in (half their price comes back)
     const sellable = h.items
       .map((it, i) => ({ it, i }))
-      .filter((x) => x.it && !['boots', 'travel', 'phase', 'treads', 'ward'].includes(x.it.def.id) && x.it.def.cost < 1300 && !x.it.def.active?.startsWith('tp'))
+      .filter((x) => x.it && !x.it.def.noShop && !['boots', 'travel', 'phase', 'treads', 'ward'].includes(x.it.def.id) && x.it.def.cost < 1300 && !x.it.def.active?.startsWith('tp'))
       .sort((p, q) => p.it!.def.cost - q.it!.def.cost)
     const full = h.items.every(Boolean) || w.pendingFor(u).length >= h.items.filter((i) => !i).length
     let refund = 0
