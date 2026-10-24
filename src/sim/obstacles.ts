@@ -28,8 +28,8 @@ const RIVER_HALF_PTS: Pt[] = [
 const RIVER_CTRL: Pt[] = [...RIVER_HALF_PTS, ...[...RIVER_HALF_PTS].reverse().map(mirror)]
 export const RIVER: Pt[] = catmull(RIVER_CTRL, 6)
 export const RIVER_PATH = new Path(RIVER)
-/** The river water ends in rounded pools: half width of the water at distance `s` along the river (tapers over the last 500). */
-export const riverHalfAt = (s: number) => RIVER_HALF * (0.55 + 0.45 * Math.min(1, Math.min(s, RIVER_PATH.len - s) / 500))
+/** The river water ends in rounded pools: half width of the water at distance `s` along the river (rounded end caps: the width follows a circle over the last 600). */
+export const riverHalfAt = (s: number) => RIVER_HALF * Math.max(0.12, Math.sqrt(Math.min(1, Math.min(s, RIVER_PATH.len - s) / 600)))
 
 /** Catmull-Rom spline through the points, `per` samples per span. */
 function catmull(p: Pt[], per: number): Pt[] {

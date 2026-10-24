@@ -5,9 +5,10 @@
 import { World } from '../src/sim/world'
 import { ITEM_BY_ID } from '../src/sim/items'
 import { recommendItem } from '../src/sim/recommend'
-import { freePoint } from '../src/sim/nav'
+import { canReach, freePoint } from '../src/sim/nav'
+import { FORDS, RIVER_PATH, heightAt, solidsNear } from '../src/sim/obstacles'
 import { HEROES } from '../src/sim/heroes'
-import { RULES, ROSHAN_PIT, groundLevel, isNeutral } from '../src/sim/constants'
+import { BOUNTY_RUNES, CAMPS, FOUNTAIN_POS, LANES, MAP, PATHS, POWER_RUNES, Pt, RULES, ROSHAN_PIT, groundLevel, isNeutral } from '../src/sim/constants'
 import { Frame, Replica, SnapshotDecoder, SnapshotEncoder, snapshotFor } from '../src/net/snapshot'
 
 const STEP = 1 / 60
@@ -609,6 +610,28 @@ const tests: Record<string, () => void> = {
     const d = dec.decode(JSON.parse(JSON.stringify(enc.encode(snapshotFor(w3, 0, w3.player.id, 1, { sfx: [], ann: [], txt: [], vfx: [] } as any, new Frame())))))
     if (d) rep.apply(d, 1000)
     ok('snapshot carries the Aegis pickup (team, expiry) and the item expiry', rep.world.runes.some((x) => x.kind === 'aegis' && x.team === 0 && !!x.expires) && rep.world.heroes[1].h!.items.some((i) => i?.def.id === 'aegis' && i.expiresAt === 123))
+  },
+  map() {
+    const w = fresh()
+    const spawn = [{ x: FOUNTAIN_POS[0].x + 240, y: FOUNTAIN_POS[0].y - 240 }, { x: FOUNTAIN_POS[1].x - 240, y: FOUNTAIN_POS[1].y + 240 }]
+    const points: [string, Pt][] = [
+      ...CAMPS.map((c, i) => [`camp ${i}`, c] as [string, Pt]),
+      ...POWER_RUNES.map((r, i) => [`power rune ${i}`, r] as [string, Pt]),
+      ...BOUNTY_RUNES.map((r, i) => [`bounty rune ${i}`, r] as [string, Pt]),
+      ['Roshan pit', ROSHAN_PIT],
+      ['pit mouth', { x: ROSHAN_PIT.x + 420, y: ROSHAN_PIT.y + 420 }],
+      ['river pool', { x: MAP - ROSHAN_PIT.x - 300, y: MAP - ROSHAN_PIT.y - 300 }],
+    ]
+    for (const [name, pt] of points) {
+      const g = freePoint(pt)
+      ok(`${name} is reachable from both fountains`, canReach(spawn[0], g) && canReach(spawn[1], g), `${pt.x.toFixed(0)},${pt.y.toFixed(0)}`)
+    }
+    for (const t of w.towers) ok(`${t.team ? 'Dire' : 'Radiant'} tier ${t.tier + 1} ${t.lane ?? ''} tower is not buried in a tree or rock`, !solidsNear(t.x, t.y).some((c) => Math.hypot(c.x - t.x, c.y - t.y) < c.r + t.radius * 0.8))
+    for (const lane of LANES) ok(`${lane} lane has the same length for both teams`, Math.abs(PATHS[0][lane].len - PATHS[1][lane].len) < 1e-6, `${PATHS[0][lane].len.toFixed(0)}`)
+    ok('the river is the mirror image of itself (fair for both teams)', Math.abs(RIVER_PATH.distTo({ x: MAP - 3000, y: MAP - 3000 }) - RIVER_PATH.distTo({ x: 3000, y: 3000 })) < 1)
+    ok('only the mid lane crosses the river', FORDS.length === 1, `${FORDS.length} fords`)
+    ok('terrain never rises above the base level', [[2450, 2300], [4800, 4800], [900, 900], [5000, 5200]].every(([x, y]) => heightAt(x, y) <= 0) && heightAt(4800, 4800) < -20)
+    ok('the pit is a hollow and the water leaves it open', heightAt(ROSHAN_PIT.x, ROSHAN_PIT.y) < -50)
   },
   soak() {
     const seed = Number(process.argv[3] || 1)

@@ -3980,3 +3980,9 @@ kbd {
 #respawn:not(.on) #b-buyback {
   pointer-events: none;
 }
+
+/* the kill feed sits under the K/D/A readout now that the menu is a row */
+#feed {
+  left: 10px;
+  top: 100px;
+}

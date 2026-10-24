@@ -266,6 +266,11 @@ export function navWaypoint(a: Pt, b: Pt, cache?: { nav?: NavCache; los?: LosCac
   return nc.path[0]
 }
 
+/** True when a unit can walk from a to b (a straight line, or a route around trees, rocks and cliffs). */
+export function canReach(a: Pt, b: Pt): boolean {
+  return lineClear(a, b) || findPath(a, b) !== null
+}
+
 /** Full route for drawing (minimap): current position, waypoints, goal. */
 export function routeFor(a: Pt, b: Pt): Pt[] {
   if (lineClear(a, b)) return [a, b]

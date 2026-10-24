@@ -1,6 +1,6 @@
 # Ancient Clash
 
-A browser **Dota 2–style MOBA**: 5v5 on three lanes, 23 heroes with four abilities each, neutral jungle camps, high-ground bases, runes, a courier per hero, a shop with 31 items, smart bots, and **LAN / online multiplayer** hosted from one PC. Everything is rendered in 3D with [three.js](https://threejs.org/) and runs in the browser — there are no art or sound files, all models, effects and audio are generated in code.
+A browser **Dota 2–style MOBA**: 5v5 on three lanes, 23 heroes with four abilities each, neutral jungle camps you can stack, Roshan and the Aegis, high-ground bases with real vision rules, runes, a courier per hero, buyback, the Glyph of Fortification, a shop with 31 items, smart bots, and **LAN / online multiplayer** hosted from one PC. Everything is rendered in 3D with [three.js](https://threejs.org/) and runs in the browser — there are no art or sound files, all models, effects and audio are generated in code.
 
 > Fan project inspired by Dota 2. It is not affiliated with or endorsed by Valve. Hero stats, creep stats, items and abilities follow the public [Dota 2 Wiki](https://dota2.fandom.com/wiki/Dota_2_Wiki); no Valve assets are used.
 
@@ -114,7 +114,7 @@ In-game models, one per hero.
 
 ![Map overview](docs/screenshots/map-overview.jpg)
 
-*Radiant jungle (left) with dirt trails between the camps, the river down the middle, and the dark Dire side (right).*
+*The river runs between a camp trail in the Radiant jungle (left) and the dark Dire side (right); the stone pad is the power-rune spot. The river bed sits lower than the banks.*
 
 | High-ground base: cliffs and lane ramp | Fountain and plaza |
 |---|---|
@@ -142,7 +142,16 @@ Right-click an item to buy it.
 
 *Channeling a teleport scroll: the scroll stash (T) sits beside the inventory and the progress bar shows in the middle of the screen. Taking damage cancels it.*
 
-> There is no Roshan in the game yet, so no screenshot of him.
+### Roshan, siege creeps, Glyph and buyback
+
+| Roshan in his pit | Siege creep | Glyph of Fortification |
+|---|---|---|
+| ![Roshan](docs/screenshots/roshan.jpg) | ![Siege creep](docs/screenshots/siege-creep.jpg) | ![Glyph](docs/screenshots/glyph.jpg) |
+| *The boss at the river's source; killing him drops the Aegis.* | *Every 10th wave a catapult joins each lane.* | *Press G: every building is invulnerable for 7 seconds.* |
+
+![Buyback screen](docs/screenshots/buyback.jpg)
+
+*Dying costs 40% of your gold. The respawn screen shows the loss and a Buyback button.*
 
 ---
 
@@ -231,13 +240,15 @@ Share the `https://…` URL it prints. WebSockets are supported by both, and the
 
 - Lane **creeps** spawn 15 seconds into the game, then every 30 seconds, and march down the lanes. Last-hit enemy creeps for gold; **deny** your own creeps (right-click one below 50% HP) to starve the enemy of XP.
 - Kill **heroes** for gold and XP. The reward follows the Dota 2 rules (see [Gold and XP](#gold-and-xp)).
-- Farm the **jungle** camps for extra gold and XP — they are tougher than lane creeps.
+- Farm the **jungle** camps for extra gold and XP — they are tougher than lane creeps. Pull a camp out of its area before the minute mark and it **stacks**.
+- Gather the team to kill **Roshan** at the river's source: he pays the whole team and drops the **Aegis of the Immortal**.
+- Dying costs 40% of your gold, but you can **buy back** (Shift + B) and use the **Glyph** (G) to save a falling building.
 - Spend gold at your fountain shop (or from anywhere using your courier).
 - Pick up **runes**, place **wards**, use **teleport scrolls**, and win team fights.
 
 ### Single player
 
-Choose a hero and a lane in the Dota-style hero picker. Heroes are grouped by Strength / Agility / Intelligence; click one to see its abilities and stats. Your four allies and the five enemies are random bots (no duplicate heroes). There is a **★ test button** in the left menu (single player only): instant level 25 with maxed skills and +20,000 gold, handy for trying heroes and items.
+Choose a hero and a lane in the Dota-style hero picker. Heroes are grouped by Strength / Agility / Intelligence; click one to see its abilities and stats. Your four allies and the five enemies are random bots (no duplicate heroes). There is a **★ Test boost** entry in the top-left Menu (single player only): instant level 25 with maxed skills and +20,000 gold, handy for trying heroes and items.
 
 ---
 
@@ -252,6 +263,8 @@ Choose a hero and a lane in the Dota-style hero picker. Heroes are grouped by St
 | **Q W E R** (and **D**) | Select an ability, then **click** the target or spot (**Esc** or right-click cancels). **M** toggles quick-cast |
 | **Alt + Q/W/E/R** (or Ctrl) | Level up that ability (or click the **+** above it) |
 | **Z X C V B N** | Use inventory slots 1–6 |
+| **G** | **Glyph of Fortification**: your buildings are invulnerable for 7 seconds (5 minute cooldown, shared by the team; first use at 3:00) |
+| **Shift + B** | **Buyback** (only while dead): pay gold to respawn at once (button on the respawn screen too) |
 | **T** | Teleport: pick a friendly tower or the Ancient (**T** twice = Ancient). Uses a scroll from the separate scroll stash |
 | **S** | Open the shop (at your fountain) |
 | **Right click** an item in the shop | **Buy** it (left-click only shows the tooltip; the mouse wheel scrolls the list when it does not fit) |
@@ -261,6 +274,7 @@ Choose a hero and a lane in the Dota-style hero picker. Heroes are grouped by St
 | Mouse at the screen edge, arrow keys, left-drag | Move the camera (edge scrolling also works over the top bar) |
 | Click a hero portrait in the top bar | Jump the camera to that hero (only if they are visible; hidden enemies are not revealed) |
 | **Tab** (hold) | Scoreboard: K/D/A, last hits, net worth, GPM/XPM, damage, items, ping, bot/player |
+| Top-left buttons | **Menu** (pause, controls, quit), **Settings** (camera lock, quick-cast, sound, graphics) and the **scoreboard**; your K/D/A and last hits / denies sit under them. FPS and ping show at the top right |
 | **P** | Pause (single player) |
 | **Esc** | Cancel / quit menu |
 | Minimap: left-click / right-click | Move camera / move your hero there (the route is drawn as a dashed green line) |
@@ -274,8 +288,13 @@ There is no zoom (the wheel is disabled on purpose).
 ### Gameplay
 - **5v5, 3 lanes**, day/night cycle (heroes see less at night), kill/assist/death scoreboard, kill streaks, multi-kills, first blood and shutdown announcements (on-screen banners with sound stings).
 - **Lane creeps** with the Dota 2 stats, upgrades every 7:30, bigger waves later, and **mega creeps** once a team's tier-3 towers fall. Creeps chase heroes only for a short leash, then return to their lane.
-- **Neutral jungle:** 16 camps (kobolds, wolves, ancient golems) with Dota 2 stats and bounties, respawning every minute. They guard their camp, gang up on intruders, never heal, and ignore lane creeps.
-- **High-ground bases:** each base is surrounded by rock cliffs and is entered only through three wide lane ramps. Tier-3 towers stand beside the ramps. The **fountain** deals 200 pure damage four times a second to intruders.
+- **Siege creeps:** every 10th wave (every 5 minutes) a catapult joins each lane. It is slow and tough (935 HP, 80% magic resistance), has a long range and hits buildings for triple damage but units for half.
+- **Neutral jungle:** 16 camps (kobolds, wolves, ancient golems) with Dota 2 stats and bounties. A camp spawns every minute **only when nothing stands in its area**, so neutrals that are pulled out of it before the minute mark leave room for a second pack: camps **stack** (up to 4 packs). Neutrals heal on the way home; a lane creep that is led into a camp gets attacked and fights back (**pulling**). They gang up on intruders and ignore passing lane creeps.
+- **Roshan:** a boss in the pit at the north-west end of the river (respawns 8-11 minutes after a kill, stronger every time). He only fights back, and his Slam stuns everything around him. Killing him pays 250 gold to every hero of the killing team, and the **Aegis of the Immortal** drops on the ground (reserved for the killers for 15 s, gone after 5 minutes). The holder who dies comes back after 5 seconds on the same spot with full health and mana, without a death penalty. The Aegis expires after 5 minutes in the inventory.
+- **High-ground bases:** each base is surrounded by rock cliffs and is entered only through three wide lane ramps. Tier-3 towers stand beside the ramps. The **fountain** deals 200 pure damage four times a second to intruders. Units on **low ground cannot see the high ground** (and cannot target what they cannot see) until a hero, ward or building up there sees it, or a flying courier passes over; area spells cast from below do not light the plateau.
+- **Backdoor protection:** a tier 2+ tower or the Ancient with no enemy lane creeps near it takes 50% less damage and heals 180 HP/s. Tier 2 towers look 900 units around them; tier 3, tier 4 and the Ancient share one check with a 4000 radius, and protection stays off for 3 seconds after the last creep leaves. Tier 1 towers have none.
+- **Glyph of Fortification (G):** all your buildings are invulnerable for 7 seconds. One team cooldown of 5 minutes, first use at 3:00.
+- **Death and buyback:** a hero that dies loses **40% of the gold they hold** (items are kept). **Buyback** (Shift + B, or the button on the respawn screen) respawns you at once for 100 + net worth / 13 gold; cooldown 8 minutes.
 - **Runes:** power runes in the river every 2 minutes and bounty runes in the jungle every 3 minutes. A bounty rune pays its full gold to every hero on the team that takes it.
 - **Wards** (vision for 3 minutes; bots and enemies place them too).
 - **Collision and pathfinding:** trees, rocks and cliffs block movement. Units path around them (A* on a grid) and through the ramps. Towers, the ancient and other buildings never move and count as obstacles too, so units walk around them instead of through them.
@@ -285,7 +304,7 @@ There is no zoom (the wheel is disabled on purpose).
 
 ### Heroes and items
 - **23 heroes** with 4 abilities each, hero stats copied from the Dota 2 wiki (attributes, growth, base regen, damage, armor, speed, range, attack time).
-- **31 shop items**, including Morbid Mask (lifesteal), Blink Dagger, Black King Bar, Heart, Butterfly, Refresher Orb, Shiva's Guard, Aghanim's Scepter, Eye of Skadi, Divine Rapier, three kinds of fast boots and the teleport scroll.
+- **31 shop items** (plus the **Aegis of the Immortal**, which only Roshan drops), including Morbid Mask (lifesteal), Blink Dagger, Black King Bar, Heart, Butterfly, Refresher Orb, Shiva's Guard, Aghanim's Scepter, Eye of Skadi, Divine Rapier, three kinds of fast boots and the teleport scroll.
 - Health = 120 + 22 per strength, mana = 75 + 12 per intelligence, armor from agility, regen scaling with attributes and items, 25 levels with the Dota XP table.
 
 ### Vision, pings and the shop
@@ -310,7 +329,7 @@ Bots ping too when they plan a push, defence, rescue or gank, so you can see wha
 
 ### Look and feel
 - Fully 3D low-poly map, heroes, creeps, towers and a hand-drawn item icon set, with per-ability particle effects (three.quarks) and bloom.
-- A Dota-style HUD: hero/skill panel with XP bar and mana-cost badges, minimap with hero portrait icons (blue = allies, red = enemies), inventory, shop, scoreboard, kill feed, hover info.
+- A HUD laid out like Dota 2's: Menu / Settings / Scoreboard buttons with your K/D/A and last hits top left, both teams' heroes (with an ultimate-ready marker on allies) and the clock on top, FPS and ping top right, the minimap with the Glyph button, and at the bottom the hero panel (portrait, abilities with mana-cost badges, health / mana / XP bars underneath, a buff row above, Hero stats on hover), the inventory with the teleport slot (and a quick-buy +), a stash strip for items waiting for the courier, a quick-buy recommendation, gold and the shop. Kill feed, hover info and a buyback button on the respawn screen.
 - Dota-style **loading screen** with both teams' rosters.
 - Synthesized **sound effects, ambient music and announcer stings** (WebAudio, no files).
 
@@ -329,6 +348,8 @@ Hero kills follow the Dota 2 wiki:
 - **Assists:** every hero that damaged the victim in the last 20 s gets the assist gold (less than the killer's) and a share of the XP too, even when far away (the killer's XP share is 50% bigger).
 - **Creeps and jungle beasts:** the last hitter gets the gold; the XP is split evenly between every allied hero within 1500 units of the dying creep, so a solo lane (usually mid) levels faster than a shared one.
 - **Towers:** the hero that lands the last hit gets the tower bounty (120 / 140 / 160 / 180 gold for tiers 1-4) plus XP shared with nearby heroes (like a hero kill); **every** hero of the team also gets 40% of the bounty, whoever destroyed it, so a creep wave taking a tower still pays the team. Denying your own tower pays nothing.
+- **Death:** the hero loses 40% of the gold they are holding (the gold is destroyed, items are kept). Dying with the Aegis costs nothing.
+- **Roshan:** every hero of the team that kills him gets 250 gold; the XP is shared like a creep kill.
 - **Kill stealing is allowed:** the last hero to hit gets the kill; earlier attackers get assists. Creep or tower kills credit the last hero who damaged the victim in the previous 20 s; with nobody recent, all enemy heroes share the bounty. Denies and neutral kills pay nothing and do not end streaks.
 
 ---
@@ -357,6 +378,7 @@ Notes: the wiki follows a newer Dota patch than the classic kits implemented her
 | Consumables | Healing Salve, Clarity, Observer Ward, **Teleportation Scroll** (separate stash, max 5) |
 | Boots | Boots of Speed (+45), Phase Boots (+45, +18 damage, active speed burst), Power Treads (+45, +25 attack speed, +10 str), Boots of Travel (+100). Boots do not stack |
 | Stat items | Gloves of Haste, Blades of Attack, **Morbid Mask** (+6 damage, 18% lifesteal: 60% against creeps, nothing against buildings), Broadsword, Chainmail, Ogre Axe, Blade of Alacrity, Staff of Wizardry, Vitality Booster, Energy Booster |
+| Roshan drop | **Aegis of the Immortal** (not for sale, cannot be sold): revives the holder after 5 s where they fell; expires after 5 minutes |
 | Power items | **Blink Dagger**, **Black King Bar** (spell immunity), **Heart of Tarrasque**, **Butterfly** (evasion), **Assault Cuirass**, **Shiva's Guard** (active slow/damage), **Aghanim's Scepter**, **Refresher Orb** (resets cooldowns), **Force Staff** (push), **Eye of Skadi**, **Divine Rapier** |
 
 Items are single purchases (no recipes). Hero-specific items such as auras and on-hit effects are simplified.
@@ -365,9 +387,9 @@ Items are single purchases (no recipes). Hero-specific items such as auras and o
 
 ## The map
 
-A 9600 × 9600 map, Radiant at the bottom-left and Dire at the top-right, with a river along the diagonal. Each side has:
+A 9600 × 9600 map, Radiant at the bottom-left and Dire at the top-right, laid out like the Dota 2 map. The river runs along the diagonal from **Roshan's pit** in the north-west to a pool in the south-east; it ends inside the map, so the side lanes sweep around the map corners without ever crossing it and only the mid lane has a ford. The river bed, the pit and the mid lane sit slightly lower than the rest of the map. Each side has:
 
-- 3 lanes with 3 towers each, two tier-4 towers and an Ancient inside a **cliff-walled base** with three ramps.
+- 3 lanes with 3 towers each (the side lanes have rounded corners), two tier-4 towers and an Ancient inside a **cliff-walled base** with three ramps.
 - **8 jungle camps** (2 small kobold camps, 4 wolf camps, 2 ancient golem camps) connected by dirt trails.
 - Trees and big rocks that block movement; an impassable dense forest and rock belt surrounds the playable area.
 
@@ -379,6 +401,7 @@ Bots follow the same rules as players: same stats, XP, gold, shop prices, courie
 
 - Team-level planning: push waves, defend threatened towers, gank isolated heroes, rescue allies, focus fire.
 - Last-hit and deny, retreat when hurt (or teleport home), place wards, collect runes.
+- Use the Glyph when a tower is falling, buy back late in the game to defend their base, and gather four or more heroes to kill Roshan when no enemy is near his pit (and pick up the Aegis).
 - Use their abilities and items: Blink, Black King Bar, Shiva's Guard, Phase Boots, Force Staff, Refresher Orb, health/mana consumables.
 - Shop: a starting build per hero, then a late-game build; they sell cheap items to afford better ones and make shopping trips to the fountain.
 
@@ -391,7 +414,7 @@ server/index.ts        Game server: lobby, countdown, authoritative simulation l
 src/main.ts            Title screen, single player / multiplayer flow
 src/game.ts            Input, camera, targeting, HUD wiring (one Game per match)
 src/sim/               Pure simulation (runs in the browser for single player and on the server for multiplayer)
-  world.ts             World state, ticking, damage, kills, items, courier, camps, runes
+  world.ts             World state, ticking, damage, kills, items, courier, camps, runes, Roshan, glyph, buyback
   ai.ts, team.ts       Bot AI and team-level planning; creep, neutral, summon, tower AI
   heroes*.ts, abilities.ts   Hero definitions and abilities (g1–g4 = hero groups)
   items.ts             Item catalog
@@ -422,7 +445,7 @@ npm run dev            # hot-reload client at http://localhost:5173 (single play
 npm run host           # production build + server on :8080 (multiplayer)
 ```
 
-After changing client code, run `npx vite build` (or `npm run host`) so the server serves the new build. The simulation is deterministic enough to run headless in Node for balance tests, for example with a short `tsx` script that creates a `World` and ticks it. `npm run test:sim` does exactly that: it checks Stop, lifesteal, skill vision, wards, tower and assist rewards, pings and the bots' reaction, item recommendations, pathing around every tower, the multiplayer snapshot round trip, creep and rune timing and rewards, Weaver's abilities and full bot matches (`npx tsx tests/sim-tests.ts <name>` runs one group, e.g. `pings` or `nav`).
+After changing client code, run `npx vite build` (or `npm run host`) so the server serves the new build. The simulation is deterministic enough to run headless in Node for balance tests, for example with a short `tsx` script that creates a `World` and ticks it. `npm run test:sim` does exactly that: it checks Stop, lifesteal, skill vision, wards, tower and assist rewards, pings and the bots' reaction, item recommendations, pathing around every tower, the multiplayer snapshot round trip, creep and rune timing and rewards, Weaver's abilities, death gold loss, buyback, the Glyph, backdoor protection, siege creeps, high-ground vision, camp stacking and pulling, Roshan and the Aegis, that every camp / tower / rune / the pit can be reached from both fountains, and full bot matches (`npx tsx tests/sim-tests.ts <name>` runs one group, e.g. `pings`, `roshan` or `nav`).
 
 ---
 
