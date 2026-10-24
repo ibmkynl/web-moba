@@ -70,6 +70,10 @@ In-game models, one per hero.
 <td align="center"><img src="docs/screenshots/heroes/phantom_assassin.png" width="190" alt="Phantom Assassin"><br><b>Phantom Assassin</b></td>
 <td align="center"><img src="docs/screenshots/heroes/bounty_hunter.png" width="190" alt="Bounty Hunter"><br><b>Bounty Hunter</b></td>
 </tr>
+<tr>
+<td align="center"><img src="docs/screenshots/heroes/windranger.png" width="190" alt="Windranger"><br><b>Windranger</b></td>
+<td align="center"><img src="docs/screenshots/heroes/weaver.png" width="190" alt="Weaver"><br><b>Weaver</b></td>
+</tr>
 </table>
 
 **Intelligence**
@@ -82,7 +86,6 @@ In-game models, one per hero.
 <td align="center"><img src="docs/screenshots/heroes/silencer.png" width="190" alt="Silencer"><br><b>Silencer</b></td>
 </tr>
 <tr>
-<td align="center"><img src="docs/screenshots/heroes/windranger.png" width="190" alt="Windranger"><br><b>Windranger</b></td>
 <td align="center"><img src="docs/screenshots/heroes/lina.png" width="190" alt="Lina"><br><b>Lina</b></td>
 <td align="center"><img src="docs/screenshots/heroes/lion.png" width="190" alt="Lion"><br><b>Lion</b></td>
 <td align="center"><img src="docs/screenshots/heroes/zeus.png" width="190" alt="Zeus"><br><b>Zeus</b></td>
@@ -226,7 +229,7 @@ Share the `https://…` URL it prints. WebSockets are supported by both, and the
 
 **Goal:** destroy the enemy **Ancient**. Each team defends three lanes (top, mid, bottom). Towers protect each lane in tiers; the tier-3 towers guard the entrances (ramps) of the base, the two tier-4 towers sit beside the Ancient, and the Ancient only becomes attackable once both tier-4 towers are down.
 
-- Lane **creeps** spawn every 30 seconds and march down the lanes. Last-hit enemy creeps for gold; **deny** your own creeps (right-click one below 50% HP) to starve the enemy of XP.
+- Lane **creeps** spawn 15 seconds into the game, then every 30 seconds, and march down the lanes. Last-hit enemy creeps for gold; **deny** your own creeps (right-click one below 50% HP) to starve the enemy of XP.
 - Kill **heroes** for gold and XP. The reward follows the Dota 2 rules (see [Gold and XP](#gold-and-xp)).
 - Farm the **jungle** camps for extra gold and XP — they are tougher than lane creeps.
 - Spend gold at your fountain shop (or from anywhere using your courier).
@@ -254,7 +257,7 @@ Choose a hero and a lane in the Dota-style hero picker. Heroes are grouped by St
 | **Right click** an item in the shop | **Buy** it (left-click only shows the tooltip; the mouse wheel scrolls the list when it does not fit) |
 | **Right click** an inventory item | Sell it (at the fountain) |
 | **1** / **L** | Center camera / lock or free the camera |
-| **Alt + click** | **Ping** (see [Pings](#pings)): on the ground, an enemy, an ally, or a building. **Alt + click on the minimap** pings that spot |
+| **Alt + click** (**Cmd + click** on Mac) | **Ping** (see [Pings](#pings)): on the ground, an enemy, an ally, or a building. The same click on the minimap pings that spot |
 | Mouse at the screen edge, arrow keys, left-drag | Move the camera (edge scrolling also works over the top bar) |
 | Click a hero portrait in the top bar | Jump the camera to that hero (only if they are visible; hidden enemies are not revealed) |
 | **Tab** (hold) | Scoreboard: K/D/A, last hits, net worth, GPM/XPM, damage, items, ping, bot/player |
@@ -273,7 +276,7 @@ There is no zoom (the wheel is disabled on purpose).
 - **Lane creeps** with the Dota 2 stats, upgrades every 7:30, bigger waves later, and **mega creeps** once a team's tier-3 towers fall. Creeps chase heroes only for a short leash, then return to their lane.
 - **Neutral jungle:** 16 camps (kobolds, wolves, ancient golems) with Dota 2 stats and bounties, respawning every minute. They guard their camp, gang up on intruders, never heal, and ignore lane creeps.
 - **High-ground bases:** each base is surrounded by rock cliffs and is entered only through three wide lane ramps. Tier-3 towers stand beside the ramps. The **fountain** deals 200 pure damage four times a second to intruders.
-- **Runes:** power runes in the river every 2 minutes and bounty runes in the jungle every 3 minutes.
+- **Runes:** power runes in the river every 2 minutes and bounty runes in the jungle every 3 minutes. A bounty rune pays its full gold to every hero on the team that takes it.
 - **Wards** (vision for 3 minutes; bots and enemies place them too).
 - **Collision and pathfinding:** trees, rocks and cliffs block movement. Units path around them (A* on a grid) and through the ramps. Towers, the ancient and other buildings never move and count as obstacles too, so units walk around them instead of through them.
 - **Courier ("Hop")**, one per hero: a bird on a red e-scooter. Items bought away from the fountain wait in your stash; Hop loads everything at the fountain at once and drives it to you. A new purchase sends Hop back to the fountain first, like Dota.
@@ -293,7 +296,7 @@ There is no zoom (the wheel is disabled on purpose).
 
 ### Pings
 
-**Alt + click** pings. What you click decides the kind, and every ping is visible to your whole team (rings on the map in the pinger's colour, and the pinger's hero icon on the minimap) for 2 seconds:
+**Alt + click** (**Cmd + click** on Mac) pings. What you click decides the kind, and every ping is visible to your whole team (rings on the map in the pinger's colour, and the pinger's hero icon on the minimap) for 2 seconds:
 
 | Click on | Ping | What the bots do |
 |---|---|---|
@@ -324,6 +327,7 @@ Hero kills follow the Dota 2 wiki:
 - **Assist share:** everyone within 1500 units (and anyone who damaged the victim in the last 20 s) also gets (30 + 3.8% of the victim's net worth) × a net-worth-gap factor, split evenly.
 - **XP:** (100 + 13% of the victim's total XP) split between nearby enemy heroes, plus a streak bonus.
 - **Assists:** every hero that damaged the victim in the last 20 s gets the assist gold (less than the killer's) and a share of the XP too, even when far away (the killer's XP share is 50% bigger).
+- **Creeps and jungle beasts:** the last hitter gets the gold; the XP is split evenly between every allied hero within 1500 units of the dying creep, so a solo lane (usually mid) levels faster than a shared one.
 - **Towers:** the hero that lands the last hit gets the tower bounty (120 / 140 / 160 / 180 gold for tiers 1-4) plus XP shared with nearby heroes (like a hero kill); **every** hero of the team also gets 40% of the bounty, whoever destroyed it, so a creep wave taking a tower still pays the team. Denying your own tower pays nothing.
 - **Kill stealing is allowed:** the last hero to hit gets the kill; earlier attackers get assists. Creep or tower kills credit the last hero who damaged the victim in the previous 20 s; with nobody recent, all enemy heroes share the bounty. Denies and neutral kills pay nothing and do not end streaks.
 
@@ -418,7 +422,7 @@ npm run dev            # hot-reload client at http://localhost:5173 (single play
 npm run host           # production build + server on :8080 (multiplayer)
 ```
 
-After changing client code, run `npx vite build` (or `npm run host`) so the server serves the new build. The simulation is deterministic enough to run headless in Node for balance tests, for example with a short `tsx` script that creates a `World` and ticks it. `npm run test:sim` does exactly that: it checks Stop, lifesteal, skill vision, wards, tower and assist rewards, pings and the bots' reaction, item recommendations, pathing around every tower, the multiplayer snapshot round trip and full bot matches (`npx tsx tests/sim-tests.ts <name>` runs one group, e.g. `pings` or `nav`).
+After changing client code, run `npx vite build` (or `npm run host`) so the server serves the new build. The simulation is deterministic enough to run headless in Node for balance tests, for example with a short `tsx` script that creates a `World` and ticks it. `npm run test:sim` does exactly that: it checks Stop, lifesteal, skill vision, wards, tower and assist rewards, pings and the bots' reaction, item recommendations, pathing around every tower, the multiplayer snapshot round trip, creep and rune timing and rewards, Weaver's abilities and full bot matches (`npx tsx tests/sim-tests.ts <name>` runs one group, e.g. `pings` or `nav`).
 
 ---
 

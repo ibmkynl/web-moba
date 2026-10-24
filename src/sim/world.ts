@@ -261,7 +261,8 @@ export class World implements WorldView {
   winner: Team | null = null
   /** The hero this client views and controls. Client-side only: the simulation never reads it (the host serves many players). */
   player!: Unit
-  nextWave = 0
+  /** the first creep waves leave the barracks 15s into the game, then every 30s */
+  nextWave = 15
   waveNo = 0
   vis: [Set<number>, Set<number>] = [new Set(), new Set()]
   visionSpots: VisionSpot[] = []
@@ -1854,10 +1855,10 @@ export class World implements WorldView {
     if (r.kind === 'bounty') {
       const min = this.time / 60
       const gold = Math.round(55 + min * 4)
-      this.gold(h, gold)
-      for (const a of this.heroes) if (a.team === h.team && a !== h && !a.dead) this.gold(a, Math.round(gold * 0.5), false)
+      // every hero on the team (alive or dead) gets the full bounty; the one who picked it up also gets the XP
+      for (const a of this.heroes) if (a.team === h.team) this.gold(a, gold)
       this.addXp(h, 30 + min * 3)
-      this.text(h.x, h.y - 120, `Bounty Rune +${gold}`, info.color, 17)
+      this.text(h.x, h.y - 120, `Bounty Rune +${gold} (team)`, info.color, 17)
     } else {
       const b: Buff = { id: 'rune', expires: this.time + info.dur, color: info.color, label: info.name + ' Rune' }
       if (r.kind === 'haste') b.msFlat = 600
@@ -2141,7 +2142,7 @@ export class World implements WorldView {
       case 'hold': {
         const r = u.st.range
         const quiet = order.t === 'idle' && order.holdFire
-        const t = u.kind === 'creep' || u.noAuto || quiet ? null : this.acquire(u, r + 40, u.kind !== 'hero')
+        const t = u.kind === 'creep' || u.noAuto || quiet || u.buffs.some((b) => b.noAutoAttack) ? null : this.acquire(u, r + 40, u.kind !== 'hero')
         if (t) this.attackStep(u, t, dt, false)
         break
       }
@@ -2431,7 +2432,7 @@ export class World implements WorldView {
   }
 
   private separate(dt: number) {
-    const us = this.units.filter((u) => !u.dead && !u.forced && u.kind !== 'fountain' && u.kind !== 'courier')
+    const us = this.units.filter((u) => !u.dead && !u.forced && u.kind !== 'fountain' && u.kind !== 'courier' && !u.buffs.some((b) => b.phased))
     for (let i = 0; i < us.length; i++) {
       const a = us[i]
       for (let j = i + 1; j < us.length; j++) {
