@@ -8,7 +8,9 @@ import { LATE_BUILD } from './recommend'
 export function aiThink(w: World, u: Unit) {
   switch (u.kind) {
     case 'creep':
-      return isNeutral(u.team) ? neutralAI(w, u) : creepAI(w, u)
+      if (!isNeutral(u.team)) return creepAI(w, u)
+      neutralAI(w, u)
+      return u.sub === 'roshan' ? roshanSlam(w, u) : undefined
     case 'summon':
       return summonAI(w, u)
     case 'tower':
@@ -58,7 +60,8 @@ function neutralAI(w: World, u: Unit) {
     const prov: Unit | undefined = u.extra.provoked
     if (prov && !prov.dead && w.canAttackTarget(u, prov)) t = prov
   }
-  if (!t) {
+  // Roshan only fights back; every other monster also attacks whoever walks up to its camp
+  if (!t && u.sub !== 'roshan') {
     let bd = 520
     for (const e of w.units) {
       if (e.dead || isNeutral(e.team) || e.isBuilding || e.kind === 'courier') continue
@@ -143,6 +146,20 @@ function creepAI(w: World, u: Unit) {
     dest = path.pts[Math.min(u.pathIdx, path.pts.length - 1)]
   }
   if (!sameMove(u, dest)) u.order = { t: 'move', x: dest.x, y: dest.y }
+}
+
+/** Roshan's Slam: every few seconds he stuns and hurts everything around him while he is fighting. */
+function roshanSlam(w: World, u: Unit) {
+  const target = u.aiTarget
+  if (!target || target.dead || u.isStunned() || u.casting || w.time < (u.extra.slamAt ?? 0) || dist(u, target) > 330) return
+  u.extra.slamAt = w.time + RULES.roshSlamCd
+  w.vfx('ring', { x: u.x, y: u.y, r0: 30, r1: 340, dur: 0.5, color: '#ffb050' })
+  w.emit('hit', u.x, u.y)
+  for (const e of w.enemiesIn(u.team, u.x, u.y, 330)) {
+    if (e.isImmune() || e.kind === 'courier') continue
+    w.damage(u, e, RULES.roshSlamDmg, 'magical')
+    if (!e.dead) w.addBuff(e, { id: 'roshan_slam', expires: w.time + RULES.roshSlamStun, stun: true, src: u, color: '#ffb050', label: 'Slam' })
+  }
 }
 
 function summonAI(w: World, u: Unit) {
@@ -623,6 +640,12 @@ function botTeamPlan(c: BotCtx): boolean {
       const tgt = w.heroes.find((x) => x.id === ord.targetId)
       if (tgt && !tgt.dead && w.canHit(u, tgt)) w.orderAttack(u, tgt)
       else w.orderAMove(u, ord.x, ord.y)
+      return true
+    }
+    if (ord.kind === 'roshan') {
+      const r = w.roshan
+      if (r && !r.dead && dist(u, r) < 900 && w.canHit(u, r)) w.orderAttack(u, r)
+      else if (dist(u, ord) > 350) w.orderAMove(u, ord.x, ord.y)
       return true
     }
     if (ord.kind === 'push') {

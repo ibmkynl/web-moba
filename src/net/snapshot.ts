@@ -30,7 +30,7 @@ export interface HeroSnap {
   xp: number
   pt: number
   g: number
-  it: ({ i: string; c: number; cd: number } | null)[]
+  it: ({ i: string; c: number; cd: number; ex?: number } | null)[]
   ab: AbSnap[]
   sl: AbSnap | null
   k: number
@@ -179,7 +179,7 @@ function unitSnap(u: Unit): UnitSnap {
     const h = u.h
     s.h = {
       d: h.def.id, lv: h.level, xp: Math.round(h.xp), pt: h.points, g: Math.round(h.gold),
-      it: h.items.map((i) => (i ? { i: i.def.id, c: i.charges, cd: +i.cdUntil.toFixed(2) } : null)),
+      it: h.items.map((i) => (i ? { i: i.def.id, c: i.charges, cd: +i.cdUntil.toFixed(2), ex: i.expiresAt ? +i.expiresAt.toFixed(1) : undefined } : null)),
       ab: h.abilities.map(abSnap), sl: h.stolen ? abSnap(h.stolen) : null,
       k: h.kills, de: h.deaths, as: h.assists, lh: h.lh, dn: h.dn, rs: +h.respawnAt.toFixed(2), pl: h.isHuman ? 1 : 0, ln: h.lane, sk: h.streak, ea: Math.round(h.earned), hd: Math.round(h.heroDmg), td: Math.round(h.towerDmg), pn: h.pname, tp: h.tpScrolls, tc: +h.tpCd.toFixed(2), bb: +h.buybackReadyAt.toFixed(2), gl: h.goldLost,
     }
@@ -236,7 +236,7 @@ export function snapshotFor(w: World, team: 0 | 1, meId: number, seq: number, ev
   return {
     t: +w.time.toFixed(3), seq, me: meId, units, projs,
     zones: w.zones.map((z) => ({ x: z.x, y: z.y, r: z.r, team: z.team, start: z.start, end: z.end, color: z.color, kind: z.kind, reveal: z.reveal ? 1 : 0, oid: z.owner.id })),
-    runes: w.runes.map((r) => ({ id: r.id, kind: r.kind, x: r.x, y: r.y, at: r.at })),
+    runes: w.runes.map((r) => ({ id: r.id, kind: r.kind, x: r.x, y: r.y, at: r.at, team: r.team, teamUntil: r.teamUntil, expires: r.expires })),
     wards: w.wards.filter((d) => d.team === team).map((d) => ({ id: d.id, x: d.x, y: d.y, team: d.team, expires: d.expires })),
     vs: w.visionSpots.filter((v) => v.team === team && v.until > w.time).map((v) => ({ x: Math.round(v.x), y: Math.round(v.y), r: v.r, u: +v.until.toFixed(2) })),
     pings: w.pings.filter((p) => p.team === team).map((p) => ({ id: p.id, x: Math.round(p.x), y: Math.round(p.y), kind: p.kind, owner: p.owner, hero: p.hero, target: p.target, t0: +p.t0.toFixed(2), until: +p.until.toFixed(2), human: p.human })),
@@ -649,7 +649,7 @@ export class Replica {
     h.heroDmg = hs.hd
     h.towerDmg = hs.td
     if (s.ex) u.ping = s.ex.ping
-    h.items = hs.it.map((i) => (i ? { def: ITEM_BY_ID[i.i], charges: i.c, cdUntil: i.cd } : null))
+    h.items = hs.it.map((i) => (i ? { def: ITEM_BY_ID[i.i], charges: i.c, cdUntil: i.cd, expiresAt: i.ex } : null))
     h.abilities.forEach((a, idx) => {
       const as = hs.ab[idx]
       if (as) this.abState(as, a)

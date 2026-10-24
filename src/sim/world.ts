@@ -1,5 +1,5 @@
 import {
-  BASE_POS, BOUNTY_RUNES, CAMPS, FOUNTAIN_POS, groundLevel, Lane, LANES, MAP, MAX_LEVEL, PATHS, POWER_RUNES, Pt, RULES, TEAM_NAME, T3_POS, T4_POS, TOWER_ARCS, Team, XP_TABLE, LANE_SLOTS, NEUTRAL, isNeutral, clamp, dist, mirror, pushOutOfWalls, shuffle,
+  BASE_POS, BOUNTY_RUNES, CAMPS, FOUNTAIN_POS, groundLevel, Lane, LANES, MAP, MAX_LEVEL, PATHS, POWER_RUNES, ROSHAN_PIT, Pt, RULES, TEAM_NAME, T3_POS, T4_POS, TOWER_ARCS, Team, XP_TABLE, LANE_SLOTS, NEUTRAL, isNeutral, clamp, dist, mirror, pushOutOfWalls, shuffle,
 } from './constants'
 import {
   AbilityState, Buff, CastTarget, DmgType, HeroDef, HeroState, ItemState, Order, Stats, Unit,
@@ -45,6 +45,7 @@ const ANN_TEXT = {
   tower_down: ['Your tower has fallen', 'Enemy tower destroyed'],
   ancient_down: ['Defeat', 'Victory!'],
   mega: ['Mega creeps are coming!', 'Enemy mega creeps incoming'],
+  roshan_down: ['Your team slew Roshan!', 'Roshan was slain by the enemy'],
 } as const
 export type AnnKind = keyof typeof ANN_TEXT
 /** An announcer line. `team` = the side the news is good for (tone); `kind` + `about` make the text viewer-relative. */
@@ -111,13 +112,17 @@ export interface KillOpts {
   denied?: boolean
 }
 
-export type RuneKind = 'haste' | 'dd' | 'regen' | 'arcane' | 'invis' | 'bounty'
+export type RuneKind = 'haste' | 'dd' | 'regen' | 'arcane' | 'invis' | 'bounty' | 'aegis'
 export interface Rune {
   id: number
   kind: RuneKind
   x: number
   y: number
   at: number
+  /** only this team may take it until `teamUntil` (the Aegis); it vanishes at `expires` */
+  team?: Team
+  teamUntil?: number
+  expires?: number
 }
 export const RUNE_INFO: Record<RuneKind, { name: string; color: string; dur: number }> = {
   haste: { name: 'Haste', color: '#ff5a3a', dur: 22 },
@@ -126,6 +131,7 @@ export const RUNE_INFO: Record<RuneKind, { name: string; color: string; dur: num
   arcane: { name: 'Arcane', color: '#d08aff', dur: 50 },
   invis: { name: 'Invisibility', color: '#cfd8ff', dur: 45 },
   bounty: { name: 'Bounty', color: '#ffd24a', dur: 0 },
+  aegis: { name: 'Aegis of the Immortal', color: '#ffd24a', dur: 0 },
 }
 
 /** Temporary team vision (skills used on an area, Thundergod's Wrath hits...). `follow` makes the spot track a unit. */
@@ -955,6 +961,7 @@ export class World implements WorldView {
   buyback(h: Unit): string | null {
     const hs = h.h
     if (!hs || !h.dead) return 'You are not dead'
+    if (hs.aegisAt) return 'The Aegis is reviving you'
     if (this.winner !== null) return 'The match is over'
     if (this.time < hs.buybackReadyAt) return `Buyback is on cooldown (${Math.ceil(hs.buybackReadyAt - this.time)}s)`
     const cost = this.buybackCost(h)
@@ -1101,7 +1108,26 @@ export class World implements WorldView {
     else if (t.kind === 'tower') this.towerDied(t, src)
     else if (t.kind === 'ancient') this.ancientDied(t)
     if (t.kind === 'tower' || t.kind === 'ancient') this.syncNav() // standing buildings are obstacles for pathfinding
-    else if (t.kind === 'hero') this.heroDied(t, src, o)
+    else if (t.kind === 'hero' && !this.aegisSave(t)) this.heroDied(t, src, o)
+  }
+
+  /**
+   * A hero holding the Aegis comes back after a few seconds where they fell: no death, no kill reward, no gold loss.
+   * Returns true when the Aegis was used.
+   */
+  private aegisSave(t: Unit) {
+    const hs = t.h!
+    const slot = hs.items.findIndex((i) => i?.def.id === 'aegis')
+    if (slot < 0) return false
+    hs.items[slot] = null
+    hs.aegisAt = { x: t.x, y: t.y }
+    hs.respawnAt = this.time + RULES.aegisRevive
+    t.damagers.clear()
+    this.recalc(t)
+    this.text(t.x, t.y - 100, 'Aegis!', RUNE_INFO.aegis.color, 20)
+    this.pushFeed(`${this.label(t)} was saved by the Aegis`, t.team)
+    this.emit('rune', t.x, t.y, { all: true })
+    return true
   }
 
   /** A dying unit drops its channel, cast, swing, forced movement and orders. */
@@ -1120,6 +1146,7 @@ export class World implements WorldView {
   private creepDied(t: Unit, src: Unit | null) {
     const enemyTeam = (1 - t.team) as Team
     if (isNeutral(t.team)) {
+      if (t.sub === 'roshan') return this.roshanDied(t, src)
       // jungle monster
       if (src && !isNeutral(src.team)) {
         if (src.kind === 'hero') {
@@ -1555,7 +1582,7 @@ export class World implements WorldView {
   buyItem(h: Unit, id: string): string | null {
     const def = ITEM_BY_ID[id]
     const hs = h.h!
-    if (!def) return 'Unknown item'
+    if (!def || def.noShop) return 'Unknown item'
     if (hs.gold < def.cost) return 'Not enough gold'
     if (id === 'tp') {
       // scrolls are delivered instantly into the separate teleport stash
@@ -1582,7 +1609,7 @@ export class World implements WorldView {
   sellItem(h: Unit, slot: number) {
     const hs = h.h!
     const it = hs.items[slot]
-    if (!it || !this.nearShop(h)) return false
+    if (!it || it.def.noShop || !this.nearShop(h)) return false
     hs.gold += Math.floor(it.def.cost * 0.5) * Math.max(1, it.charges)
     hs.items[slot] = null
     this.recalc(h)
@@ -1705,6 +1732,44 @@ export class World implements WorldView {
     u.nextThink = this.time + Math.random() * 0.2
     this.add(u)
     return u
+  }
+
+  /* ----------------------------------------------------------- Roshan */
+
+  /** The boss in the pit at the river's source; null until the first spawn and while a respawn is pending. */
+  roshan: Unit | null = null
+  /** When Roshan returns after a kill (or first appears). */
+  roshanAt = 0.5
+
+  private spawnRoshan() {
+    // stronger the later he appears (tune): health, damage and armor grow with the game clock
+    const min = this.time / 60
+    const u = new Unit(NEUTRAL, 'creep', 'roshan', 'Roshan', 85, {
+      maxHp: 5500 + 115 * min, dmg: 80 + 1.8 * min, armor: 15 + 0.275 * min, ms: 350, range: 150,
+      bat: 2.3, ap: 0.56, projSpeed: 0, hpRegen: 0,
+    })
+    u.st.magicRes = 0.5
+    u.xp = 600
+    u.x = ROSHAN_PIT.x
+    u.y = ROSHAN_PIT.y
+    u.facing = Math.PI / 4
+    u.extra.home = { x: u.x, y: u.y }
+    u.nextThink = this.time + 0.3
+    this.add(u)
+    this.roshan = u
+    return u
+  }
+
+  /** Roshan died: the killing team is paid and the Aegis drops where he fell. */
+  private roshanDied(t: Unit, src: Unit | null) {
+    this.roshanAt = this.time + RULES.roshMin + Math.random() * (RULES.roshMax - RULES.roshMin)
+    if (!src || isNeutral(src.team)) return
+    const team = src.team
+    for (const h of this.heroes) if (h.team === team) this.gold(h, RULES.roshGold)
+    this.giveXp(team, t.x, t.y, t.xp)
+    this.spawnPickup('aegis', t.x, t.y, team)
+    this.announceAbout('roshan_down', team, 'The Aegis of the Immortal has dropped', team, true)
+    this.pushFeed(`${TEAM_NAME[team]} killed Roshan`, team)
   }
 
   /** Siege creep (every RULES.siegeEvery-th wave): slow, tough, long range, far stronger against buildings than units. */
@@ -1833,6 +1898,7 @@ export class World implements WorldView {
       this.nextCamp += 60
       this.spawnCamps()
     }
+    if ((!this.roshan || this.roshan.dead) && this.time >= this.roshanAt) this.spawnRoshan()
     if (this.time >= this.nextWave) {
       this.spawnWave()
       this.nextWave += 30
@@ -1930,6 +1996,12 @@ export class World implements WorldView {
 
   /* -------------------------------------------------------------- runes */
 
+  /** A dropped pickup on the ground (the Aegis): reserved for `team` at first, gone after RULES.aegisGround seconds. */
+  private spawnPickup(kind: RuneKind, x: number, y: number, team: Team) {
+    this.runes.push({ id: this.runeId++, kind, x, y, at: this.time, team, teamUntil: this.time + RULES.aegisTeamOnly, expires: this.time + RULES.aegisGround })
+    this.vfx('ring', { x, y, r0: 20, r1: 260, dur: 1, color: RUNE_INFO[kind].color })
+  }
+
   private spawnRune(kind: RuneKind, x: number, y: number) {
     this.runes = this.runes.filter((r) => Math.hypot(r.x - x, r.y - y) > 60)
     this.runes.push({ id: this.runeId++, kind, x, y, at: this.time })
@@ -1955,10 +2027,14 @@ export class World implements WorldView {
     }
     if (!this.runes.length) return
     for (const r of this.runes) {
+      if (r.expires !== undefined && this.time >= r.expires) {
+        r.at = -1
+        continue
+      }
       let taker: Unit | null = null
       let bd = 140
       for (const h of this.heroes) {
-        if (h.dead) continue
+        if (h.dead || !this.canTakeRune(h, r)) continue
         const d = Math.hypot(h.x - r.x, h.y - r.y)
         if (d < bd) {
           bd = d
@@ -1973,8 +2049,28 @@ export class World implements WorldView {
     this.runes = this.runes.filter((r) => r.at >= 0)
   }
 
+  /** The Aegis is for the team that killed Roshan at first, and needs a free slot (or an Aegis to refresh). */
+  private canTakeRune(h: Unit, r: Rune) {
+    if (r.kind !== 'aegis') return true
+    if (r.team !== undefined && h.team !== r.team && this.time < (r.teamUntil ?? 0)) return false
+    return h.h!.items.some((i) => !i || i.def.id === 'aegis')
+  }
+
   private pickRune(h: Unit, r: Rune) {
     const info = RUNE_INFO[r.kind]
+    if (r.kind === 'aegis') {
+      const held = h.h!.items.find((i) => i?.def.id === 'aegis')
+      if (held) held.expiresAt = this.time + RULES.aegisLife
+      else {
+        this.giveItem(h, ITEM_BY_ID.aegis)
+        const it = h.h!.items.find((i) => i?.def.id === 'aegis')
+        if (it) it.expiresAt = this.time + RULES.aegisLife
+      }
+      this.text(h.x, h.y - 120, 'Aegis of the Immortal!', info.color, 18)
+      this.pushFeed(`${this.label(h)} picked up the Aegis`, h.team)
+      this.emit('rune', h.x, h.y, { all: true })
+      return
+    }
     if (r.kind === 'bounty') {
       const min = this.time / 60
       const gold = Math.round(55 + min * 4)
@@ -2049,9 +2145,18 @@ export class World implements WorldView {
       u.buffs = []
       u.hp = u.st.maxHp
       u.mana = u.st.maxMana
-      const f = FOUNTAIN_POS[u.team]
-      u.x = f.x + (u.team === 0 ? 240 : -240)
-      u.y = f.y + (u.team === 0 ? -240 : 240)
+      if (hs.aegisAt) {
+        // revived by the Aegis: right where the hero fell
+        u.x = hs.aegisAt.x
+        u.y = hs.aegisAt.y
+        hs.aegisAt = null
+        this.vfx('ring', { x: u.x, y: u.y, r0: 20, r1: 260, dur: 0.9, color: RUNE_INFO.aegis.color })
+        this.emit('rune', u.x, u.y, { all: true })
+      } else {
+        const f = FOUNTAIN_POS[u.team]
+        u.x = f.x + (u.team === 0 ? 240 : -240)
+        u.y = f.y + (u.team === 0 ? -240 : 240)
+      }
       u.order = { t: 'idle' }
       u.forced = null
       u.revealUntil = 0
@@ -2062,6 +2167,14 @@ export class World implements WorldView {
 
   private stepHeroAbilities(u: Unit, dt: number) {
     const hs = u.h!
+    for (let i = 0; i < hs.items.length; i++) {
+      const it = hs.items[i]
+      if (it?.expiresAt && this.time >= it.expiresAt) {
+        hs.items[i] = null
+        this.text(u.x, u.y - 100, `${it.def.name} expired`, '#cfd8e0', 15)
+        this.recalc(u)
+      }
+    }
     const cdr = u.buffs.reduce((n, b) => n + (b.cdr || 0), 0)
     if (cdr) for (const a of this.allAbilities(u)) if (a.cdUntil > this.time) a.cdUntil -= dt * cdr
     if (hs.stolen && this.time >= hs.stolen.expires) hs.stolen = null

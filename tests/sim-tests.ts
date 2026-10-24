@@ -7,7 +7,7 @@ import { ITEM_BY_ID } from '../src/sim/items'
 import { recommendItem } from '../src/sim/recommend'
 import { freePoint } from '../src/sim/nav'
 import { HEROES } from '../src/sim/heroes'
-import { groundLevel, isNeutral } from '../src/sim/constants'
+import { RULES, ROSHAN_PIT, groundLevel, isNeutral } from '../src/sim/constants'
 import { Frame, Replica, SnapshotDecoder, SnapshotEncoder, snapshotFor } from '../src/net/snapshot'
 
 const STEP = 1 / 60
@@ -553,6 +553,62 @@ const tests: Record<string, () => void> = {
     for (const m of c5.members) m.nextThink = 1e9
     run(w5, 1)
     ok('a lane creep passing near a camp does not pick a fight', !lc5.aiTarget || !isNeutral(lc5.aiTarget.team))
+  },
+  roshan() {
+    const w = fresh(); clearCreeps(w); freeze(w); const p = w.player
+    run(w, 1)
+    const r = w.roshan!
+    ok('Roshan spawns once at the start in his pit', !!r && !r.dead && Math.hypot(r.x - ROSHAN_PIT.x, r.y - ROSHAN_PIT.y) < 5, r ? `${r.x},${r.y}` : 'none')
+    ok('he does not attack a hero standing next to him', (() => { place(w, r.x + 200, r.y + 100); w.orderStop(p, true); r.nextThink = 0; run(w, 3); return r.aiTarget === null && p.hp === p.st.maxHp })())
+    // hit him: he fights back, Slam stuns
+    w.damage(p, r, 10, 'physical'); r.nextThink = 0; run(w, 1)
+    ok('he fights back at whoever hit him', r.aiTarget === p)
+    run(w, 1.5)
+    ok('Slam stuns the hero', p.hasBuff('roshan_slam') || p.hp < p.st.maxHp - RULES.roshSlamDmg * 0.5, `hp ${p.hp.toFixed(0)}/${p.st.maxHp}`)
+    // heals when left alone
+    place(w, 4000, 4000); r.hp = r.st.maxHp * 0.4; r.lastDamagedByEnemy = w.time; r.extra.provoked = undefined; r.aiTarget = null
+    run(w, 40)
+    ok('he heals to full when left alone', r.hp > r.st.maxHp * 0.99, `${(r.hp / r.st.maxHp * 100).toFixed(0)}%`)
+    // kill: team paid, Aegis drops
+    const mate = w.heroes.find((h) => h.team === 0 && h !== p)!; const foe = w.heroes.find((h) => h.team === 1)!
+    const g0 = [p.h!.gold, mate.h!.gold, foe.h!.gold]
+    place(w, r.x + 150, r.y); w.kill(r, p)
+    ok('every hero of the killing team gets 250 gold, the other team nothing', p.h!.gold - g0[0] >= RULES.roshGold && mate.h!.gold - g0[1] >= RULES.roshGold && foe.h!.gold - g0[2] < 100, `${p.h!.gold - g0[0]} ${mate.h!.gold - g0[1]} ${foe.h!.gold - g0[2]}`)
+    const drop = w.runes.find((x) => x.kind === 'aegis')
+    ok('the Aegis drops on the ground where he fell', !!drop && Math.hypot(drop!.x - r.x, drop!.y - r.y) < 5)
+    ok('Roshan returns in 8-11 minutes', w.roshanAt - w.time >= RULES.roshMin - 1 && w.roshanAt - w.time <= RULES.roshMax + 1, `${(w.roshanAt - w.time).toFixed(0)}s`)
+    // only the killing team can take it at first
+    foe.dead = false; foe.x = drop!.x; foe.y = drop!.y
+    run(w, 0.5)
+    ok('the enemy cannot take it during the first seconds', w.runes.some((x) => x.kind === 'aegis') && !foe.h!.items.some((i) => i?.def.id === 'aegis'))
+    p.x = drop!.x; p.y = drop!.y; run(w, 0.5)
+    ok('the killer picks it up', p.h!.items.some((i) => i?.def.id === 'aegis') && !w.runes.some((x) => x.kind === 'aegis'))
+    ok('it cannot be sold or bought', (() => { place(w, 470, 9100); const slot = p.h!.items.findIndex((i) => i?.def.id === 'aegis'); return !w.sellItem(p, slot) && w.buyItem(p, 'aegis') !== null })())
+    // dying with it: revived in place, full stats, no death, no gold loss
+    place(w, 3000, 3000); p.h!.gold = 1000; const deaths = p.h!.deaths; p.hp = 50
+    w.kill(p, foe)
+    ok('the Aegis is consumed, no death is counted and no gold is lost', !p.h!.items.some((i) => i?.def.id === 'aegis') && p.h!.deaths === deaths && p.h!.gold === 1000 && p.dead)
+    ok('buyback is refused while the Aegis revives', w.buyback(p) !== null)
+    run(w, RULES.aegisRevive + 0.2)
+    ok('revived on the same spot with full health and mana', !p.dead && Math.hypot(p.x - 3000, p.y - 3000) < 5 && p.hp === p.st.maxHp && p.mana === p.st.maxMana, `${p.x.toFixed(0)},${p.y.toFixed(0)} hp ${p.hp.toFixed(0)}`)
+    ok('no kill reward for the killer', foe.h!.kills === 0)
+    // the item expires
+    const it = (w.giveItem(p, ITEM_BY_ID.aegis), p.h!.items.find((i) => i?.def.id === 'aegis')!); it.expiresAt = w.time + RULES.aegisLife
+    run(w, RULES.aegisLife + 1)
+    ok('the Aegis expires after 5 minutes', !p.h!.items.some((i) => i?.def.id === 'aegis'))
+    // the drop on the ground disappears by itself
+    const w2 = fresh(); clearCreeps(w2); freeze(w2); run(w2, 1)
+    w2.kill(w2.roshan!, w2.player); run(w2, RULES.aegisGround + 1)
+    ok('an unclaimed Aegis vanishes from the ground', !w2.runes.some((x) => x.kind === 'aegis'))
+    run(w2, RULES.roshMax)
+    ok('Roshan comes back after the timer, stronger than before', !!w2.roshan && !w2.roshan.dead && w2.roshan.st.maxHp > 5500, `${w2.roshan?.st.maxHp.toFixed(0)}`)
+    // snapshot round trip carries the pickup and the item expiry
+    const w3 = fresh(); clearCreeps(w3); freeze(w3); run(w3, 1); w3.kill(w3.roshan!, w3.player)
+    w3.giveItem(w3.heroes[1], ITEM_BY_ID.aegis); w3.heroes[1].h!.items.find((i) => i?.def.id === 'aegis')!.expiresAt = 123
+    const enc = new SnapshotEncoder(), dec = new SnapshotDecoder(), rep = new Replica()
+    const d = dec.decode(JSON.parse(JSON.stringify(enc.encode(snapshotFor(w3, 0, w3.player.id, 1, { sfx: [], ann: [], txt: [], vfx: [] } as any, new Frame())))))
+    if (d) rep.apply(d, 1000)
+    ok('snapshot carries the Aegis pickup (team, expiry) and the item expiry', rep.world.runes.some((x) => x.kind === 'aegis' && x.team === 0 && !!x.expires) && rep.world.heroes[1].h!.items.some((i) => i?.def.id === 'aegis' && i.expiresAt === 123))
   },
   soak() {
     const seed = Number(process.argv[3] || 1)

@@ -60,6 +60,10 @@ export const ITEMS: ItemDef[] = [
     active: 'force', cd: 19, mana: 150, desc: '+10 intelligence, +175 health. Active: push yourself 600 units forward over 0.5s. Mana 150, cooldown 19s.',
   },
   { id: 'skadi', name: 'Eye of Skadi', cost: 5300, glyph: '❅', color: '#a8e8ff', cat: 'attribute', stats: { str: 35, agi: 35, int: 35 }, desc: '+35 to all attributes.' },
+  {
+    id: 'aegis', name: 'Aegis of the Immortal', cost: 0, glyph: '✚', color: '#ffd24a', cat: 'misc', noShop: true,
+    desc: 'Dropped by Roshan. If the holder dies, they come back after 5 seconds where they fell, with full health and mana and no death penalty. Disappears after 5 minutes. Cannot be sold.',
+  },
   { id: 'rapier', name: 'Divine Rapier', cost: 5600, glyph: '⚔', color: '#ffd24a', cat: 'equipment', stats: { dmg: 250 }, desc: '+250 damage.' },
 ]
 

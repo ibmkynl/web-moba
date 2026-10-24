@@ -1,9 +1,9 @@
-import { BASE_POS, Lane, LANES, PATHS, Pt, Team, dist } from './constants'
+import { BASE_POS, Lane, LANES, PATHS, Pt, ROSHAN_PIT, Team, dist } from './constants'
 import type { Unit } from './entities'
 import type { Ping, World } from './world'
 
 export interface TeamOrder {
-  kind: 'push' | 'defend' | 'gank' | 'rescue'
+  kind: 'push' | 'defend' | 'gank' | 'rescue' | 'roshan'
   x: number
   y: number
   targetId?: number
@@ -47,6 +47,7 @@ export class TeamBrain {
   mia = 0
   lastPlanKind = ''
   private lastBotPing = -99
+  private nextRoshanTry = 1200
 
   constructor(public team: Team) {}
 
@@ -179,6 +180,7 @@ export class TeamBrain {
           p.y = pos.y
         }
       }
+      if (p.kind === 'roshan' && (!w.roshan || w.roshan.dead)) ok = false
       if (p.followId !== undefined && ok) {
         const f = w.heroes.find((h) => h.id === p.followId)
         if (!f || f.dead) ok = false
@@ -248,7 +250,13 @@ export class TeamBrain {
       if (!bestGank || score > bestGank.score) bestGank = { e, score }
     }
     if (bestGank) return { kind: 'gank', started: now, until: now + 7, x: kp(bestGank.e).x, y: kp(bestGank.e).y, targetId: bestGank.e.id }
-    // 4) group up and push a lane
+    // 4) take Roshan when the team is healthy and no enemy hero is known to be near his pit
+    const strong = bots.filter((b) => b.hp > b.st.maxHp * 0.7)
+    if (now > this.nextRoshanTry && w.roshan && !w.roshan.dead && strong.length >= 4 && !known.some((e) => dist(kp(e), ROSHAN_PIT) < 3000)) {
+      this.nextRoshanTry = now + 150
+      return { kind: 'roshan', started: now, until: now + 70, x: ROSHAN_PIT.x + 300, y: ROSHAN_PIT.y + 300 }
+    }
+    // 5) group up and push a lane
     const ready = bots.filter((b) => b.hp > b.st.maxHp * 0.6)
     const foeAlive = w.heroes.filter((h) => h.team !== T && !h.dead).length
     if (now > 300 && ready.length >= 3 && mine.length >= foeAlive) {
@@ -300,7 +308,9 @@ export class TeamBrain {
     const give = (list: Unit[], o: Omit<TeamOrder, 'until'>) => {
       for (const b of list) this.orders.set(b.id, { ...o, until: now + 1.5 })
     }
-    if (p.kind === 'defend' || p.kind === 'rescue') {
+    if (p.kind === 'roshan') {
+      give(bots.filter((b) => b.hp > b.st.maxHp * 0.4), { kind: 'roshan', x: p.x, y: p.y })
+    } else if (p.kind === 'defend' || p.kind === 'rescue') {
       give(
         bots.filter((b) => (p.pinged || dist(b, p) < 5500) && b.hp > b.st.maxHp * (p.pinged ? 0.25 : 0.35)),
         { kind: p.kind, x: p.x, y: p.y },
