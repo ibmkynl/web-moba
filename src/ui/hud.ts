@@ -5,6 +5,7 @@ import { ITEMS } from '../sim/items'
 import { recommendItem, roomFor } from '../sim/recommend'
 import { itemIcon } from './itemicons'
 import { esc } from './html'
+import { PING_KEY, isPingClick } from './keys'
 import { QUALITIES } from '../render/renderer3d'
 import { heroPortrait } from '../render/portraits'
 
@@ -180,7 +181,7 @@ export class Hud {
           <div><kbd>Alt</kbd>+<kbd>Q/W/E/R</kbd> (or Ctrl) or click <b>+</b> to level up</div>
           <div><kbd>Z X C V B N</kbd> items &nbsp; <kbd>S</kbd> shop (at your fountain)</div>
           <div><kbd>1</kbd> center camera &nbsp; <kbd>L</kbd> lock/free camera</div>
-          <div><kbd>Alt</kbd> + click <b>ping</b> (enemy, location, building, ally): teammates and bots see it and react</div>
+          <div><kbd>${PING_KEY}</kbd> + click <b>ping</b> (enemy, location, building, ally): teammates and bots see it and react</div>
           <div><kbd>Tab</kbd> scoreboard &nbsp; <kbd>P</kbd> pause &nbsp; <kbd>Esc</kbd> cancel</div>
         </div>
         <button id="help-close">Close</button>
@@ -308,7 +309,7 @@ export class Hud {
     this.mm.addEventListener('mousedown', (ev) => {
       ev.stopPropagation()
       const m = mmPos(ev)
-      if (ev.altKey && ev.button === 0) this.g.minimapPing(m.x, m.y)
+      if (isPingClick(ev)) this.g.minimapPing(m.x, m.y)
       else if (ev.button === 2 || ev.ctrlKey) this.g.minimapOrder(m.x, m.y)
       else {
         this.mmDrag = true

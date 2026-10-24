@@ -17,7 +17,7 @@ const TIPS = [
   'Press a skill key, then click the target or spot to cast it.',
   'Last-hit enemy creeps for gold. Deny your own to starve the enemy of experience.',
   'Wards give your team vision for 3 minutes — place them in the river and jungle.',
-  'Power runes spawn in the river every 2 minutes. Bounty runes spawn in the jungle every 3.',
+  'Power runes spawn in the river every 2 minutes. Bounty runes spawn in the jungle every 3 and pay the whole team.',
   'Your courier delivers items to you when you buy away from the fountain.',
   'Destroy the towers in a lane to unlock the next ones — then the Ancient.',
   'Hold Tab to see everyone’s kills, items and net worth.',

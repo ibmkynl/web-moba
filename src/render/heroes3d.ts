@@ -5,8 +5,9 @@ import { MODELS_G1 } from './heroes3d_g1'
 import { MODELS_G2 } from './heroes3d_g2'
 import { MODELS_G3 } from './heroes3d_g3'
 import { MODELS_G4 } from './heroes3d_g4'
+import { MODELS_G5 } from './heroes3d_g5'
 
-const EXTRA = mergeUnique('hero model', MODELS_G1, MODELS_G2, MODELS_G3, MODELS_G4)
+const EXTRA = mergeUnique('hero model', MODELS_G1, MODELS_G2, MODELS_G3, MODELS_G4, MODELS_G5)
 
 /* ----------------------------------------------------------------- heroes */
 

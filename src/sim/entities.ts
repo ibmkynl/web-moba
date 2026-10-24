@@ -41,6 +41,8 @@ export interface Buff {
   dmgMul?: number // +x attack damage (1 = doubled)
   spellAmp?: number
   cdr?: number // cooldown reduction rate (0.3 = cooldowns tick 30% faster)
+  phased?: boolean // walks through other units (no collision)
+  noAutoAttack?: boolean // does not acquire targets on its own (only attacks when ordered)
 }
 
 export interface Stats {

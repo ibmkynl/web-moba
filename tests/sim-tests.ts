@@ -7,6 +7,7 @@ import { ITEM_BY_ID } from '../src/sim/items'
 import { recommendItem } from '../src/sim/recommend'
 import { freePoint } from '../src/sim/nav'
 import { HEROES } from '../src/sim/heroes'
+import { isNeutral } from '../src/sim/constants'
 import { Frame, Replica, SnapshotDecoder, SnapshotEncoder, snapshotFor } from '../src/net/snapshot'
 
 const STEP = 1 / 60
@@ -292,6 +293,72 @@ const tests: Record<string, () => void> = {
     if (d2) rep2.apply(d2, now + 100)
     ok('a keyframe (new join / resume) carries live pings', rep2.world.pings.length === 1)
     ok('the replica world keeps standing buildings as obstacles (syncNav)', rep0.world.towers.length === 22)
+  },
+  rules() {
+    const w = fresh(); const lane = () => w.units.filter((u) => u.kind === 'creep' && !isNeutral(u.team) && !u.dead).length
+    run(w, 14.5)
+    ok('no lane creeps before 0:15', lane() === 0, `${lane()} creeps`)
+    run(w, 1)
+    ok('first creep waves spawn at 0:15', lane() > 0, `${lane()} creeps`)
+    // bounty rune: every hero on the team gets the full bounty
+    const p = w.player; const team = w.heroes.filter((h) => h.team === p.team); const enemy = w.heroes.filter((h) => h.team !== p.team)
+    const g0 = team.map((h) => h.h!.gold); const e0 = enemy.map((h) => h.h!.gold)
+    ;(w as any).pickRune(p, { id: 999, kind: 'bounty', x: p.x, y: p.y, at: 0 })
+    const gains = team.map((h, i) => h.h!.gold - g0[i])
+    ok('bounty rune pays every teammate the same full amount', gains.every((g) => g > 0 && g === gains[0]), gains.join(','))
+    ok('bounty rune pays the enemy nothing', enemy.every((h, i) => h.h!.gold === e0[i]))
+    // creep XP is split between the heroes in range
+    const w2 = fresh(); clearCreeps(w2); freeze(w2); const me = place(w2, 3000, 3000)
+    const ally = w2.heroes.find((h) => h.team === me.team && h !== me)!
+    const c1 = enemyCreep(w2, 3200, 3000); const x0 = me.h!.xp; w2.kill(c1, me)
+    const solo = me.h!.xp - x0
+    ok('a solo hero gets the full creep XP', Math.abs(solo - c1.xp) < 1e-6, `${solo} of ${c1.xp}`)
+    ally.x = 3100; ally.y = 3050; ally.dead = false
+    const c2 = enemyCreep(w2, 3200, 3000); const a0 = me.h!.xp; const b0 = ally.h!.xp; w2.kill(c2, me)
+    ok('two heroes in range split the creep XP', Math.abs(me.h!.xp - a0 - c2.xp / 2) < 1e-6 && Math.abs(ally.h!.xp - b0 - c2.xp / 2) < 1e-6, `${(me.h!.xp - a0).toFixed(1)} + ${(ally.h!.xp - b0).toFixed(1)} of ${c2.xp}`)
+    ok('Windranger is an agility hero', HEROES.find((h) => h.id === 'windranger')!.attr === 'agi')
+  },
+  weaver() {
+    const w = fresh('weaver'); clearCreeps(w); freeze(w); const p = place(w, 3000, 3000)
+    ok('Weaver is an agility hero', p.h!.def.attr === 'agi')
+    const [swarm, shu, gem, lapse] = p.h!.abilities
+    swarm.level = 4; shu.level = 4; gem.level = 4; lapse.level = 3
+    const refill = () => { p.mana = p.st.maxMana; for (const a of p.h!.abilities) a.cdUntil = 0 }
+    // The Swarm latches onto an enemy, bites and strips armor
+    const e = enemyCreep(w, 3500, 3000); const eb = enemyCreep(w, 3560, 3080); const ec = enemyCreep(w, 3620, 2920); refill(); const arm0 = e.st.armor
+    ok('cast The Swarm', w.orderCast(p, swarm, undefined, e.x, e.y) === null); run(w, 3)
+    ok('a beetle latched on and bites', e.hasBuff('weaver_swarm') && e.st.armor < arm0 && e.damagers.has(p.id), `armor ${arm0} -> ${e.st.armor}`)
+    ok('every enemy in the swarm\'s path gets a beetle', eb.hasBuff('weaver_swarm') && ec.hasBuff('weaver_swarm'))
+    w.units = w.units.filter((u) => u !== eb && u !== ec)
+    run(w, 9)
+    ok('the beetle falls off after its duration', !e.hasBuff('weaver_swarm'))
+    // Shukuchi: invisible, max speed, damages what Weaver passes, attacking ends it
+    w.units = w.units.filter((u) => u !== e)
+    const e2 = enemyCreep(w, 3300, 3000); refill(); place(w, 3000, 3000)
+    ok('cast Shukuchi', w.orderCast(p, shu, undefined, p.x, p.y) === null); run(w, 0.4)
+    ok('Shukuchi: invisible at max speed', p.isInvisible(w.time) && p.st.ms === 550, `ms ${p.st.ms}`)
+    w.orderMove(p, 3700, 3000); run(w, 1.5)
+    ok('Shukuchi damages an enemy Weaver passes', e2.damagers.has(p.id))
+    w.orderAttack(p, e2); run(w, 1.5)
+    ok('attacking ends Shukuchi', !p.hasBuff('shukuchi'))
+    // Geminate Attack: more hits land than attacks start
+    w.units = w.units.filter((u) => u !== e2)
+    const e3 = enemyCreep(w, 3300, 3000); place(w, 3000, 3000); p.attackReadyAt = 0
+    let hits = 0, extra = 0
+    const ws = w as any; const aa = ws.applyAttack.bind(w)
+    ws.applyAttack = (u: any, t: any) => { if (u === p) { hits++; if (p.extra.geminate) extra++ } return aa(u, t) }
+    w.orderAttack(p, e3); run(w, 7)
+    ws.applyAttack = aa
+    ok('Geminate Attack fires an extra attack every 3s', extra >= 2 && extra <= 3, `${hits} hits, ${extra} geminate`)
+    // Time Lapse: back to where (and how healthy) Weaver was
+    w.units = w.units.filter((u) => u !== e3)
+    place(w, 3000, 3000); p.hp = p.st.maxHp; refill(); run(w, 2)
+    w.displace(p, 4000, 3600); p.hp = p.st.maxHp * 0.2
+    w.addBuff(p, { id: 'test_stun', expires: w.time + 0.01, slow: 0.5, src: e3, label: 'x' })
+    run(w, 0.5)
+    ok('cast Time Lapse', w.orderCast(p, lapse, undefined, p.x, p.y) === null); run(w, 0.05)
+    ok('Time Lapse returns Weaver to his old spot', Math.hypot(p.x - 3000, p.y - 3000) < 40, `${p.x.toFixed(0)},${p.y.toFixed(0)}`)
+    ok('Time Lapse restores health', p.hp > p.st.maxHp * 0.9, `${(p.hp / p.st.maxHp * 100).toFixed(0)}%`)
   },
   soak() {
     const seed = Number(process.argv[3] || 1)

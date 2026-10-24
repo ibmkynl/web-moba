@@ -5,6 +5,7 @@ import { HEROES_G1 } from './heroes_g1'
 import { HEROES_G2 } from './heroes_g2'
 import { HEROES_G3 } from './heroes_g3'
 import { HEROES_G4 } from './heroes_g4'
+import { HEROES_G5 } from './heroes_g5'
 
 // Base stats follow Dota 2 closely but are approximate and tunable.
 export const HEROES: HeroDef[] = [
@@ -63,7 +64,7 @@ export const HEROES: HeroDef[] = [
   },
 ]
 
-HEROES.push(...HEROES_G1, ...HEROES_G2, ...HEROES_G3, ...HEROES_G4)
+HEROES.push(...HEROES_G1, ...HEROES_G2, ...HEROES_G3, ...HEROES_G4, ...HEROES_G5)
 
 export const HERO_BY_ID: Record<string, HeroDef> = indexUnique('hero', HEROES)
 /** Every hero ability by id (also checks that no two heroes reuse an ability id). */

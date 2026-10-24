@@ -5,6 +5,7 @@ import { World, WorldCfg, type WorldView, announcementText, inAudience, reaches,
 import type { Overlay } from './render/renderer3d'
 import { Renderer3D } from './render/renderer3d'
 import { Hud } from './ui/hud'
+import { isPingClick } from './ui/keys'
 import { Sfx } from './audio'
 import { Api, LocalApi, NetApi } from './net/api'
 import type { NetClient } from './net/client'
@@ -321,8 +322,8 @@ export class Game {
     c.addEventListener('mousedown', (e) => {
       this.screenMouse = { x: e.clientX, y: e.clientY }
       this.mouse = this.renderer.toWorld(e.clientX, e.clientY)
-      if (e.button === 0 && e.altKey && !this.targeting) {
-        // Alt + click: team ping (location, enemy, own/enemy building, ally)
+      if (isPingClick(e) && !this.targeting) {
+        // Alt + click (Cmd + click on Mac): team ping (location, enemy, own/enemy building, ally)
         this.mouse = this.renderer.pickGround(e.clientX, e.clientY)
         this.pingHere()
       } else if (e.button === 0 && !e.ctrlKey) {
@@ -494,14 +495,14 @@ export class Game {
     this.hud.toast(this.camLocked ? 'Camera locked to hero' : 'Camera free — edge scroll / arrows')
   }
 
-  /** Alt + click: ping what is under the cursor (a unit, or the ground). */
+  /** Alt + click (Cmd + click on Mac): ping what is under the cursor (a unit, or the ground). */
   private pingHere() {
     if (this.player.dead) return
     const t = this.hud.mouseOverUi ? null : this.pick()
     this.api.ping(this.mouse.x, this.mouse.y, t)
   }
 
-  /** Alt + click on the minimap. */
+  /** Alt + click (Cmd + click on Mac) on the minimap. */
   minimapPing(x: number, y: number) {
     if (this.player.dead) return
     this.api.ping(x, y, null)

@@ -10,11 +10,12 @@ import { VFX_G1 } from './vfx_g1'
 import { VFX_G2 } from './vfx_g2'
 import { VFX_G3 } from './vfx_g3'
 import { VFX_G4 } from './vfx_g4'
+import { VFX_G5 } from './vfx_g5'
 
 /** A custom effect: build it with the Vfx helpers (emit, ring, column, beam, slash, spikes, spawn...). */
 export type CustomVfx = (v: Vfx, e: VfxEvt, posOf?: (u: { x: number; y: number }) => THREE.Vector3 | null) => void
 
-const CUSTOM: Record<string, CustomVfx> = mergeUnique('effect', VFX_BASE, VFX_G1, VFX_G2, VFX_G3, VFX_G4)
+const CUSTOM: Record<string, CustomVfx> = mergeUnique('effect', VFX_BASE, VFX_G1, VFX_G2, VFX_G3, VFX_G4, VFX_G5)
 
 /** Visual effects layer built on three.quarks (particles) plus a few small mesh effects. */
 

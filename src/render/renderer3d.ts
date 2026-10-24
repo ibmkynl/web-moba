@@ -78,6 +78,8 @@ const PROJ_GEO = {
   bulletGlow: new THREE.CylinderGeometry(7, 7, 80, 8),
   core: new THREE.SphereGeometry(0.55, 10, 8),
   orb: new THREE.SphereGeometry(1, 12, 10),
+  beetle: new THREE.SphereGeometry(1, 8, 6),
+  wing: new THREE.CircleGeometry(1, 8),
 }
 const projMats = new Map<string, THREE.Material>()
 /** Shared projectile material, keyed by kind and colour. */
@@ -671,6 +673,25 @@ export class Renderer3D {
       glow.rotation.z = Math.PI / 2
       g.add(shaft, tip, glow)
       if (p.kind !== 'linear') g.scale.setScalar(0.55)
+    } else if (p.style === 'swarm') {
+      // Weaver's Swarm: a loose cloud of beetles spread across the projectile's width
+      const shell = projMat('swarmShell', () => new THREE.MeshStandardMaterial({ color: '#24343a', metalness: 0.5, roughness: 0.35, emissive: new THREE.Color('#1a5a40'), emissiveIntensity: 0.7 }))
+      const wing = projMat('swarmWing', () => new THREE.MeshBasicMaterial({ color: '#c8f8d8', transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }))
+      for (let i = 0; i < 10; i++) {
+        const bug = new THREE.Group()
+        const body = mesh(PROJ_GEO.beetle, shell)
+        body.scale.set(13, 7, 9)
+        bug.add(body)
+        for (const s of [-1, 1]) {
+          const wg = mesh(PROJ_GEO.wing, wing)
+          wg.scale.set(12, 7, 1)
+          wg.rotation.x = -Math.PI / 2 + s * 0.5
+          wg.position.set(-4, 6, s * 9)
+          bug.add(wg)
+        }
+        bug.position.set((Math.random() - 0.5) * 90, (Math.random() - 0.5) * 40, ((i + 0.5) / 10 - 0.5) * 260)
+        g.add(bug)
+      }
     } else if (p.style === 'bullet') {
       const b = mesh(PROJ_GEO.bullet, basic('#ffffff'))
       b.rotation.z = Math.PI / 2

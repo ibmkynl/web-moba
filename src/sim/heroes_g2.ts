@@ -445,14 +445,14 @@ const CLOAK_AND_DAGGER: AbilityDef = {
 
 export const HEROES_G2: HeroDef[] = [
   {
-    id: 'windranger', name: 'Windranger', title: 'Lyralei', attr: 'int',
+    id: 'windranger', name: 'Windranger', title: 'Lyralei', attr: 'agi',
     str: 18, strG: 2, agi: 19, agiG: 1.4, int: 21, intG: 2.4, hpRegen: 0.25, manaRegen: 0.25,
-    baseDmg: 10.0, armor: 0, ms: 290, range: 600, bat: 1.5, ap: 0.4, projSpeed: 1250, radius: 34,
+    baseDmg: 12.0, armor: 0, ms: 290, range: 600, bat: 1.5, ap: 0.4, projSpeed: 1250, radius: 34,
     color: '#8ad06a', color2: '#3a6a2a', roles: ['Carry', 'Disabler', 'Escape'],
     lore: 'A huntress of the Ymir forest who bends the wind itself. Her bow never misses its mark, and she is gone before the echo fades.',
     abilities: [SHACKLESHOT, POWERSHOT, WINDRUN, FOCUS_FIRE],
     skillOrder: [0, 2, 0, 1, 0, 3, 0, 2, 2, 2, 3, 1, 1, 1, 3],
-    buy: ['boots', 'gloves', 'staff', 'blades', 'alacrity', 'blink'],
+    buy: ['boots', 'gloves', 'alacrity', 'blades', 'alacrity', 'blink'],
   },
   {
     id: 'antimage', name: 'Anti-Mage', title: 'Magina', attr: 'agi',
