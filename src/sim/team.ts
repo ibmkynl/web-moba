@@ -1,4 +1,4 @@
-import { Lane, LANES, PATHS, Pt, Team, dist } from './constants'
+import { BASE_POS, Lane, LANES, PATHS, Pt, Team, dist } from './constants'
 import type { Unit } from './entities'
 import type { Ping, World } from './world'
 
@@ -113,9 +113,36 @@ export class TeamBrain {
     return s && now - s.t < 10 ? { x: s.x, y: s.y } : null
   }
 
+  /** A dead bot buys back only to defend its base: late game, a building near the ancient is under attack, and the gold is spare. */
+  private botBuybacks(w: World) {
+    const T = this.team
+    if (w.time < 900 || w.time - w.dangerTimer[T] > 6) return
+    const pos = w.dangerPos[T]
+    if (!pos || dist(pos, BASE_POS[T]) > 2800) return
+    for (const h of w.heroes) {
+      if (h.team !== T || !h.dead || h.h!.isHuman) continue
+      if (h.h!.gold >= w.buybackCost(h) * 1.25) w.buyback(h)
+    }
+  }
+
+  /** Use the Glyph when a tier 2+ tower or the ancient is badly hurt with enemy heroes standing next to it. */
+  private botGlyph(w: World) {
+    const T = this.team
+    if (w.time < w.glyphReadyAt[T] || w.time - w.dangerTimer[T] > 3) return
+    for (const b of [...w.towers, ...w.ancients]) {
+      if (b.team !== T || b.dead || (b.kind === 'tower' && b.tier === 0) || b.hp > b.st.maxHp * 0.45) continue
+      if (w.heroes.some((e) => e.team !== T && !e.dead && dist(e, b) <= 1200)) {
+        w.useGlyph(T)
+        return
+      }
+    }
+  }
+
   update(w: World) {
     const T = this.team
     const now = w.time
+    this.botBuybacks(w)
+    this.botGlyph(w)
     const mine = w.heroes.filter((h) => h.team === T && !h.dead)
     const bots = mine.filter((h) => !h.h!.isHuman)
     const foes = w.heroes.filter((h) => h.team !== T && !h.dead)

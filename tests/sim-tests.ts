@@ -360,6 +360,120 @@ const tests: Record<string, () => void> = {
     ok('Time Lapse returns Weaver to his old spot', Math.hypot(p.x - 3000, p.y - 3000) < 40, `${p.x.toFixed(0)},${p.y.toFixed(0)}`)
     ok('Time Lapse restores health', p.hp > p.st.maxHp * 0.9, `${(p.hp / p.st.maxHp * 100).toFixed(0)}%`)
   },
+  goldloss() {
+    const w = fresh(); clearCreeps(w); freeze(w); const p = place(w, 3000, 3000)
+    p.h!.gold = 1000; p.h!.earned = 5000; w.buyItem(p, 'boots'); const items0 = p.h!.items.filter(Boolean).length; p.h!.gold = 1000
+    w.kill(p, null)
+    ok('dying loses 40% of the gold on hand', p.h!.gold === 600, `gold ${p.h!.gold}`)
+    ok('items are kept and earned (GPM) is unchanged', p.h!.items.filter(Boolean).length === items0 && p.h!.earned === 5000)
+    const w2 = fresh(); clearCreeps(w2); freeze(w2); const q = place(w2, 3000, 3000); q.h!.gold = 0
+    w2.kill(q, null)
+    ok('no gold stays at 0', q.h!.gold === 0)
+    const w3 = fresh(); clearCreeps(w3); freeze(w3); const r = place(w3, 3000, 3000); r.h!.gold = 1000
+    const tw = w3.towers.find((t) => t.team === 1)!; w3.kill(r, tw)
+    ok('a tower kill costs 40% too', r.h!.gold === 600)
+    r.h!.respawnAt = w3.time; w3.tick(STEP); ok('hero respawns', !r.dead)
+    w3.kill(r, null)
+    ok('losses compound (600 -> 360)', r.h!.gold === 360, `gold ${r.h!.gold}`)
+  },
+  buyback() {
+    const w = fresh(); clearCreeps(w); freeze(w); const p = place(w, 3000, 3000); const hs = p.h!
+    ok('buyback refused while alive', w.buyback(p) !== null)
+    hs.gold = 5000; w.kill(p, null); const afterLoss = hs.gold
+    const cost = w.buybackCost(p)
+    ok('cost = 100 + net worth / 13', cost === Math.round(100 + w.netWorth(p) / 13), `cost ${cost}`)
+    ok('buyback works while dead', w.buyback(p) === null && hs.gold === afterLoss - cost, `gold ${hs.gold}`)
+    w.tick(STEP)
+    ok('hero is alive at the fountain at once', !p.dead && Math.hypot(p.x - 470, p.y - 9100) < 600, `${p.x.toFixed(0)},${p.y.toFixed(0)}`)
+    ok('hp and mana are full', p.hp === p.st.maxHp)
+    w.kill(p, null); hs.gold = 9999
+    ok('second buyback blocked by the 8 minute cooldown', w.buyback(p) !== null && p.dead)
+    run(w, 481)
+    ok('cooldown ends after 480 s', hs.buybackReadyAt <= w.time)
+    const w2 = fresh(); clearCreeps(w2); freeze(w2); const q = place(w2, 3000, 3000); w2.kill(q, null); q.h!.gold = 0
+    ok('too poor to buy back', w2.buyback(q) !== null && q.dead)
+    // snapshot round trip keeps the cooldown and the lost gold
+    const w3 = fresh(); clearCreeps(w3); freeze(w3); const t = place(w3, 3000, 3000); t.h!.gold = 4000; w3.kill(t, null); w3.buyback(t)
+    const enc = new SnapshotEncoder(), dec = new SnapshotDecoder(), rep = new Replica()
+    const d = dec.decode(JSON.parse(JSON.stringify(enc.encode(snapshotFor(w3, 0, t.id, 1, { sfx: [], ann: [], txt: [], vfx: [] } as any, new Frame())))))
+    if (d) rep.apply(d, 1000)
+    const rh = rep.world.heroes.find((h) => h.id === t.id)!
+    ok('snapshot carries buyback cooldown and lost gold', Math.abs(rh.h!.buybackReadyAt - t.h!.buybackReadyAt) < 0.01 && rh.h!.goldLost === t.h!.goldLost && rh.h!.goldLost > 0)
+  },
+  glyph() {
+    const w = fresh(); clearCreeps(w); freeze(w)
+    const t = w.towers.find((x) => x.team === 0 && x.tier === 0)!; const e = w.towers.find((x) => x.team === 1 && x.tier === 0)!
+    ok('glyph is locked before 3:00', w.useGlyph(0) !== null)
+    w.time = 181
+    const hp0 = t.hp
+    ok('glyph can be used from 3:00', w.useGlyph(0) === null)
+    ok('buildings take no damage during the glyph', w.damage(w.heroes.find((h) => h.team === 1)!, t, 500, 'pure') === 0 && t.hp === hp0)
+    ok('only the owner team is protected', w.damage(w.player, e, 100, 'pure') > 0)
+    ok('glyph has a shared cooldown', w.useGlyph(0) !== null)
+    run(w, 7.2)
+    ok('protection ends after 7 s', w.damage(w.heroes.find((h) => h.team === 1)!, t, 100, 'pure') > 0)
+    ok('the other team can still use its own glyph', w.useGlyph(1) === null)
+    w.time = 181 + 301
+    ok('cooldown is 300 s', w.useGlyph(0) === null)
+    const enc = new SnapshotEncoder(), dec = new SnapshotDecoder(), rep = new Replica()
+    const d = dec.decode(JSON.parse(JSON.stringify(enc.encode(snapshotFor(w, 0, w.player.id, 1, { sfx: [], ann: [], txt: [], vfx: [] } as any, new Frame())))))
+    if (d) rep.apply(d, 1000)
+    ok('snapshot carries the glyph cooldown', rep.world.glyphReadyAt[0] === w.glyphReadyAt[0] && rep.world.glyphReadyAt[1] === w.glyphReadyAt[1])
+  },
+  backdoor() {
+    const w = fresh(); clearCreeps(w); freeze(w)
+    const attacker = w.heroes.find((h) => h.team === 0)!
+    const t2 = w.towers.find((x) => x.team === 1 && x.tier === 1 && x.lane === 'mid')!; t2.locked = false
+    const t1 = w.towers.find((x) => x.team === 1 && x.tier === 0 && x.lane === 'mid')!; t1.locked = false
+    run(w, 0.3)
+    ok('a tier 2 tower with no creeps nearby is protected', t2.bdp)
+    ok('tier 1 towers are never protected', !t1.bdp)
+    const hit = (b: typeof t2) => { const h0 = b.hp; w.damage(attacker, b, 200, 'pure'); return h0 - b.hp }
+    ok('protected building takes 50% damage', hit(t2) === 100)
+    ok('unprotected building takes full damage', hit(t1) === 200)
+    t2.hp = t2.st.maxHp - 1000; t2.lastDamagedByEnemy = w.time; const h0 = t2.hp; run(w, 1)
+    ok('protected building regenerates ~180 HP/s', t2.hp - h0 > 150 && t2.hp - h0 < 215, `+${(t2.hp - h0).toFixed(0)}`)
+    const c = w.spawnCreep(0, 'melee', 'mid', 2000); c.x = t2.x + 300; c.y = t2.y; c.noAuto = true; c.nextThink = 1e9
+    run(w, 0.3)
+    ok('an enemy lane creep next to it switches protection off', !t2.bdp)
+    ok('full damage while a creep is close', hit(t2) === 200)
+    c.dead = true; run(w, 1)
+    ok('protection stays off for the linger time', !t2.bdp)
+    run(w, 3)
+    ok('and returns after it', t2.bdp)
+    const anc = w.ancientOf(1)!; const t3 = w.towers.find((x) => x.team === 1 && x.tier === 2)!
+    ok('tier 3 and the ancient are protected too', t3.bdp && anc.bdp)
+    const c2 = w.spawnCreep(0, 'melee', 'mid', 2000); c2.x = anc.x - 3000; c2.y = anc.y; c2.noAuto = true; c2.nextThink = 1e9
+    run(w, 0.3)
+    ok('a creep within 4000 of the ancient removes the whole base protection', !t3.bdp && !anc.bdp)
+    const s = w.heroes.find((h) => h.team === 0)!; const summon = Object.assign(Object.create(s), { kind: 'summon', team: 0 })
+    c2.dead = true; run(w, 5)
+    const h1 = t2.hp; w.damage(summon, t2, 200, 'pure'); ok('summons deal 25%', Math.abs(h1 - t2.hp - 50) < 1e-6, `${h1 - t2.hp}`)
+  },
+  siege() {
+    const w = fresh(); freeze(w)
+    const sieges = () => w.units.filter((u) => u.sub === 'siege' && !u.dead)
+    while (w.waveNo < 9) run(w, 1)
+    ok('no siege creeps before wave 10', sieges().length === 0)
+    while (w.waveNo < 10) run(w, 1)
+    ok('wave 10 brings one siege creep per lane and team', sieges().length === 6 && [0, 1].every((t) => ['top', 'mid', 'bot'].every((l) => sieges().filter((s) => s.team === t && s.lane === l).length === 1)), `${sieges().length}`)
+    while (w.waveNo < 11) run(w, 1)
+    ok('wave 11 has none', sieges().length === 6)
+    const s = sieges()[0]
+    ok('stats: 935 HP, range 690, 0 armor, 80% magic resistance', s.st.maxHp === 935 && s.st.range === 690 && s.st.armor === 0 && s.st.magicRes === 0.8, `${s.st.maxHp} ${s.st.range} ${s.st.magicRes}`)
+    const w2 = fresh(); clearCreeps(w2); freeze(w2); const p = place(w2, 3000, 3000)
+    const m = w2.spawnCreep(0, 'siege', 'mid', 1500); m.hp = m.st.maxHp
+    const h0 = m.hp; w2.damage(p, m, 100, 'magical'); ok('magic damage is reduced by 80%', Math.abs(h0 - m.hp - 20) < 1e-6, `${h0 - m.hp}`)
+    const tw = w2.towers.find((t) => t.team === 1 && t.tier === 0 && t.lane === 'mid')!; tw.locked = false; tw.bdp = false; tw.base.armor = 0; tw.st.armor = 0
+    const sg = w2.spawnCreep(0, 'siege', 'mid', 1500); sg.x = tw.x - 600; sg.y = tw.y; sg.noAuto = true; sg.nextThink = 0
+    const foe = w2.spawnCreep(1, 'melee', 'mid', 1500); foe.x = sg.x + 100; foe.y = sg.y; foe.noAuto = true; foe.nextThink = 1e9; foe.base.dmg = 0
+    run(w2, 0.5)
+    ok('siege creep picks the building over a nearby creep', sg.aiTarget === tw, sg.aiTarget ? `${sg.aiTarget.kind}` : 'none')
+    const dmgB = (() => { const a = tw.hp; w2.applyAttack(sg, tw); return a - tw.hp })()
+    const dmgU = (() => { foe.base.armor = 0; foe.st.armor = 0; const a = foe.hp; w2.applyAttack(sg, foe); return a - foe.hp })()
+    ok('siege deals 3x to a building and 0.5x to a unit', Math.abs(dmgB / dmgU - 6) < 0.8 && dmgB > 100, `building ${dmgB.toFixed(0)} unit ${dmgU.toFixed(0)}`)
+    const es = w2.spawnCreep(1, 'siege', 'mid', 1500); const g0 = p.h!.gold; w2.kill(es, p); ok('killing a siege creep pays 66 gold', p.h!.gold - g0 === 66, `${p.h!.gold - g0}`)
+  },
   soak() {
     const seed = Number(process.argv[3] || 1)
     const w = fresh(['pudge', 'zeus', 'sniper', 'riki'][seed % 4])

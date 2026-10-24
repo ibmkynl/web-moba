@@ -1,5 +1,5 @@
 import {
-  BASE_POS, BOUNTY_RUNES, CAMPS, FOUNTAIN_POS, Lane, LANES, MAP, MAX_LEVEL, PATHS, POWER_RUNES, Pt, T3_POS, T4_POS, TOWER_ARCS, Team, XP_TABLE, LANE_SLOTS, NEUTRAL, isNeutral, clamp, dist, mirror, pushOutOfWalls, shuffle,
+  BASE_POS, BOUNTY_RUNES, CAMPS, FOUNTAIN_POS, Lane, LANES, MAP, MAX_LEVEL, PATHS, POWER_RUNES, Pt, RULES, TEAM_NAME, T3_POS, T4_POS, TOWER_ARCS, Team, XP_TABLE, LANE_SLOTS, NEUTRAL, isNeutral, clamp, dist, mirror, pushOutOfWalls, shuffle,
 } from './constants'
 import {
   AbilityState, Buff, CastTarget, DmgType, HeroDef, HeroState, ItemState, Order, Stats, Unit,
@@ -214,6 +214,7 @@ export interface WorldView {
   readonly kills: number[]
   readonly winner: Team | null
   readonly nextPowerRune: number
+  readonly glyphReadyAt: [number, number]
   readonly isDay: boolean
   vfxQ: any[]
   player: Unit
@@ -222,6 +223,7 @@ export interface WorldView {
   visionOf(u: Unit): number
   nightAmount(): number
   netWorth(h: Unit): number
+  buybackCost(h: Unit): number
   canLevel(h: Unit, i: number): boolean
   nearShop(h: Unit): boolean
   pendingFor(h: Unit): ItemDef[]
@@ -262,6 +264,9 @@ export class World implements WorldView {
   /** The hero this client views and controls. Client-side only: the simulation never reads it (the host serves many players). */
   player!: Unit
   /** the first creep waves leave the barracks 15s into the game, then every 30s */
+  /** Glyph of Fortification: shared team cooldown (time it is ready again) */
+  glyphReadyAt: [number, number] = [RULES.glyphFirst, RULES.glyphFirst]
+  private bdTimer = 0
   nextWave = 15
   waveNo = 0
   vis: [Set<number>, Set<number>] = [new Set(), new Set()]
@@ -849,6 +854,7 @@ export class World implements WorldView {
       d *= (1 - t.st.magicRes) * (ethereal ? 1.4 : 1)
     }
     if (d <= 0) return 0
+    if (t.bdp && src && src.team !== t.team) d *= 1 - (src.kind === 'summon' ? RULES.backdoorSummonReduce : RULES.backdoorReduce)
     if (o.nonLethal) d = Math.min(d, t.hp - 1)
     if (d <= 0) return 0
     t.hp -= d
@@ -894,6 +900,67 @@ export class World implements WorldView {
   netWorth(h: Unit) {
     const hs = h.h!
     return Math.round(hs.gold + hs.items.reduce((n, it) => n + (it ? it.def.cost * Math.max(1, it.charges) : 0), 0))
+  }
+
+  /** Glyph of Fortification: every standing building of the team is invulnerable for a few seconds. */
+  useGlyph(team: Team): string | null {
+    if (this.winner !== null) return 'The match is over'
+    if (this.time < this.glyphReadyAt[team]) return `Glyph is on cooldown (${Math.ceil(this.glyphReadyAt[team] - this.time)}s)`
+    this.glyphReadyAt[team] = this.time + RULES.glyphCd
+    for (const b of this.units) {
+      if (b.team !== team || b.dead || !b.isBuilding || b.kind === 'fountain') continue
+      this.addBuff(b, { id: 'glyph', expires: this.time + RULES.glyphDur, invuln: true, color: '#7ad0ff', label: 'Glyph of Fortification' })
+      this.vfx('ring', { x: b.x, y: b.y, r0: 40, r1: 260, dur: 0.7, color: '#7ad0ff' })
+    }
+    this.pushFeed(`${TEAM_NAME[team]} used Glyph of Fortification`, team)
+    this.emit('glyph', 0, 0, { all: true })
+    return null
+  }
+
+  /**
+   * Backdoor protection: a tier 2+ tower or the ancient with no enemy lane creep close by takes less damage from enemies
+   * and heals. Tier 2 towers look 900 around themselves; tier 3, 4 and the ancient share one base-wide check.
+   */
+  private stepBackdoor() {
+    for (const team of [0, 1] as Team[]) {
+      const anc = this.ancientOf(team)
+      const near = (x: number, y: number, r: number) => {
+        for (const c of this.units) {
+          if (c.kind !== 'creep' || c.dead || c.team === team || isNeutral(c.team)) continue
+          if ((c.x - x) ** 2 + (c.y - y) ** 2 <= r * r) return true
+        }
+        return false
+      }
+      const baseHot = !!anc && near(anc.x, anc.y, RULES.backdoorAncientRadius)
+      for (const b of this.units) {
+        if (b.team !== team || b.dead || (b.kind !== 'tower' && b.kind !== 'ancient')) continue
+        if (b.kind === 'tower' && b.tier === 0) continue
+        const hot = b.kind === 'tower' && b.tier === 1 ? near(b.x, b.y, RULES.backdoorRadius) : baseHot
+        if (hot) b.extra.bdOff = this.time + RULES.backdoorLinger
+        b.bdp = this.time >= (b.extra.bdOff ?? 0)
+      }
+    }
+  }
+
+  /** Gold a dead hero must pay to respawn at once. */
+  buybackCost(h: Unit) {
+    return Math.round(RULES.buybackBase + this.netWorth(h) / RULES.buybackDiv)
+  }
+
+  /** Pay to respawn immediately at the fountain. Returns an error text, or null on success. */
+  buyback(h: Unit): string | null {
+    const hs = h.h
+    if (!hs || !h.dead) return 'You are not dead'
+    if (this.winner !== null) return 'The match is over'
+    if (this.time < hs.buybackReadyAt) return `Buyback is on cooldown (${Math.ceil(hs.buybackReadyAt - this.time)}s)`
+    const cost = this.buybackCost(h)
+    if (hs.gold < cost) return `Not enough gold (${cost})`
+    hs.gold -= cost
+    hs.buybackReadyAt = this.time + RULES.buybackCd
+    hs.respawnAt = this.time
+    this.pushFeed(`${this.label(h)} bought back`, h.team)
+    this.emit('buyback', h.x, h.y, { all: true })
+    return null
   }
 
   /**
@@ -1096,6 +1163,13 @@ export class World implements WorldView {
     hs.deaths++
     this.emit('death', t.x, t.y, { team: t.team })
     hs.respawnAt = this.time + 6 + hs.level * 2.8
+    // dying costs a share of the gold on hand (items are kept); taken before any kill reward is worked out
+    const lost = Math.floor(hs.gold * RULES.deathGoldLoss)
+    if (lost > 0) {
+      hs.gold -= lost
+      hs.goldLost = lost
+      if (hs.isHuman) this.text(t.x, t.y - 60, `-${lost}`, '#ff6a5a', 18, { hero: t.id, only: true })
+    }
     // who gets the credit: the enemy hero that landed the blow; if creeps or a tower did, the last hero that damaged the
     // victim in the last 20s (earlier damagers are assists); nobody recent = every enemy hero shares the bounty
     const recent: Unit[] = []
@@ -1598,7 +1672,7 @@ export class World implements WorldView {
 
   /* ---------------------------------------------------------- creeps */
 
-  spawnCreep(team: Team, sub: 'melee' | 'ranged', lane: Lane, arc: number) {
+  spawnCreep(team: Team, sub: 'melee' | 'ranged' | 'siege', lane: Lane, arc: number) {
     // Dota 2 lane creep stats (wiki): permanent upgrades every 7:30 to health, damage and bounty
     const up = Math.min(30, Math.floor(this.time / 450))
     // mega creeps: once the enemy has lost all three tier-3 towers
@@ -1607,6 +1681,7 @@ export class World implements WorldView {
       this.megaTold[team] = true
       this.announceAbout('mega', team, 'Barracks destroyed', team, true)
     }
+    if (sub === 'siege') return this.spawnSiege(team, lane, arc, up)
     const melee = sub === 'melee'
     const hp = mega ? (melee ? 1270 : 1015) : melee ? 550 + 12 * up : 300 + 12 * up
     const dmg = mega ? (melee ? 100 : 133.5) : melee ? 21 + up : 23.5 + 2 * up
@@ -1617,6 +1692,26 @@ export class World implements WorldView {
     u.bounty = mega ? (melee ? 23 : 22) : melee ? 36.5 + up : 47.5 + 6 * up
     if (mega) u.mega = true
     u.xp = mega ? (melee ? 25 : 22) : melee ? 57 : 69 + 8 * up
+    u.lane = lane
+    const p = PATHS[team][lane].at(arc)
+    u.x = p.x
+    u.y = p.y
+    u.pathIdx = 1
+    u.facing = team === 0 ? -Math.PI / 4 : (3 * Math.PI) / 4
+    u.nextThink = this.time + Math.random() * 0.2
+    this.add(u)
+    return u
+  }
+
+  /** Siege creep (every RULES.siegeEvery-th wave): slow, tough, long range, far stronger against buildings than units. */
+  private spawnSiege(team: Team, lane: Lane, arc: number, up: number) {
+    const u = new Unit(team, 'creep', 'siege', 'Siege Creep', 38, {
+      maxHp: 935 + 22 * up, dmg: 40 + 3 * up, armor: 0, ms: 325, range: 690,
+      bat: 2.7, ap: 0.7, projSpeed: 900, hpRegen: 0,
+    })
+    u.st.magicRes = RULES.siegeMagicRes
+    u.bounty = 66 + 6 * up
+    u.xp = 88
     u.lane = lane
     const p = PATHS[team][lane].at(arc)
     u.x = p.x
@@ -1694,6 +1789,7 @@ export class World implements WorldView {
         for (let i = 0; i < melee + ranged; i++) {
           this.spawnCreep(team, i < melee ? 'melee' : 'ranged', lane, 650 - i * 110)
         }
+        if (this.waveNo % RULES.siegeEvery === 0) this.spawnCreep(team, 'siege', lane, 650 - (melee + ranged) * 110)
       }
     }
   }
@@ -1738,6 +1834,11 @@ export class World implements WorldView {
       }
     }
     this.stepRunes()
+    this.bdTimer -= dt
+    if (this.bdTimer <= 0) {
+      this.bdTimer = 0.25
+      this.stepBackdoor()
+    }
     // per-unit updates
     for (const u of this.units) {
       if (u.dead) {
@@ -1902,6 +2003,8 @@ export class World implements WorldView {
   private stepRegen(u: Unit, dt: number) {
     const s = u.st
     if (u.kind === 'fountain') return
+    // a protected building heals back what the enemy takes
+    if (u.bdp && u.hp < s.maxHp && this.time - u.lastDamagedByEnemy < 15) u.hp = Math.min(s.maxHp, u.hp + RULES.backdoorRegen * dt)
     if (u.hp < s.maxHp) u.hp = Math.min(s.maxHp, u.hp + (s.hpRegen + this.buffRegen(u, 'regenHp')) * dt)
     if (s.maxMana > 0 && u.mana < s.maxMana) u.mana = Math.min(s.maxMana, u.mana + (s.manaRegen + this.buffRegen(u, 'regenMana')) * dt)
     // fountain healing
@@ -2264,6 +2367,7 @@ export class World implements WorldView {
       for (const a of u.h.abilities) if (a.level > 0 && a.def.onAttackHit) dmg += a.def.onAttackHit(this, u, t, a.level, a)
     }
     if (u.mega && t.isBuilding) dmg *= 2.2
+    if (u.sub === 'siege') dmg *= t.isBuilding ? RULES.siegeVsBuilding : RULES.siegeVsUnit
     if (u.kind === 'fountain') {
       // the fountain deals exactly 200 pure damage per hit (armor and evasion cannot save you)
       this.damage(u, t, 200, 'pure', { attack: true })

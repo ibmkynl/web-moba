@@ -308,3 +308,45 @@ export function mergeUnique<T>(label: string, ...tables: Record<string, T>[]): R
 }
 /** Indexes a list by id; a duplicate id throws. */
 export const indexUnique = <T extends { id: string }>(label: string, list: T[]) => mergeUnique(label, ...list.map((x) => ({ [x.id]: x })))
+
+/* ------------------------------------------------------------------ rules */
+// Tunable gameplay numbers, kept together so balance passes do not touch the simulation code. Values marked "tune" are first
+// guesses to be settled by playtesting; the rest follow the Dota 2 wiki.
+
+export const RULES = {
+  /** fraction of the gold a hero is holding that is lost on death */
+  deathGoldLoss: 0.4,
+  /** buyback cost = base + net worth / div; cooldown in seconds */
+  buybackBase: 100,
+  buybackDiv: 13,
+  buybackCd: 480,
+  /** Glyph of Fortification: building invulnerability (s), shared team cooldown (s), first use */
+  glyphDur: 7,
+  glyphCd: 300,
+  glyphFirst: 180,
+  /** backdoor protection: damage reduction, regen (HP/s), detection radius of towers and of the ancient, seconds it stays off after a lane creep leaves */
+  backdoorReduce: 0.5,
+  backdoorRegen: 180,
+  backdoorRadius: 900,
+  backdoorAncientRadius: 4000,
+  backdoorLinger: 3,
+  /** summons deal even less to a protected building */
+  backdoorSummonReduce: 0.75,
+  /** siege creep (tune): every Nth wave, damage multiplier against buildings and against everything else */
+  siegeEvery: 10,
+  siegeVsBuilding: 3,
+  siegeVsUnit: 0.5,
+  siegeMagicRes: 0.8,
+  /** camp stacking: most packs a camp can hold (tune) and the area (by tier) that must be empty for a spawn */
+  maxStacks: 4,
+  campArea: [380, 440, 520] as number[],
+  neutralReturnRegen: 0.25,
+  /** Roshan (tune): respawn window (s), pit radius, Aegis lifetime on the ground and in the inventory (s) */
+  roshMin: 480,
+  roshMax: 660,
+  roshGold: 250,
+  aegisGround: 300,
+  aegisLife: 300,
+  aegisRevive: 5,
+  aegisTeamOnly: 15,
+}

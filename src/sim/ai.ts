@@ -87,7 +87,9 @@ function creepAI(w: World, u: Unit) {
 
   // how far a creep is willing to follow its target before giving up
   const leash = (e: Unit) => (e.isBuilding ? reach + 120 : e.kind === 'hero' ? reach + 300 : reach + 420)
-  const score = (e: Unit) => dist(u, e) - e.radius + (e.isBuilding ? 220 : 0)
+  // siege creeps go for buildings: they reach them from far away and are weak against everything else
+  const siege = u.sub === 'siege'
+  const score = (e: Unit) => dist(u, e) - e.radius + (e.isBuilding ? (siege ? -1200 : 220) : 0)
 
   // 1. keep the current target only while it is still valid and within the leash
   let t = u.aiTarget
@@ -100,7 +102,7 @@ function creepAI(w: World, u: Unit) {
     if (e.dead || e.team === u.team || e.kind === 'fountain' || isNeutral(e.team)) continue
     if (e.isInvulnerable() || !w.isVisible(u.team, e)) continue
     const d = dist(u, e) - e.radius
-    if (d > (e.isBuilding ? 330 : 520)) continue
+    if (d > (e.isBuilding ? (siege ? reach + 60 : 330) : 520)) continue
     const sc = score(e)
     if (sc < bs) {
       bs = sc

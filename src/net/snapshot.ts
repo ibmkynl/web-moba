@@ -1,5 +1,6 @@
 import type { Buff } from '../sim/entities'
 import { AbilityState, HeroState, Unit } from '../sim/entities'
+import { RULES } from '../sim/constants'
 import { ABILITY_BY_ID, HERO_BY_ID } from '../sim/heroes'
 import { ITEM_BY_ID } from '../sim/items'
 import { World, inAudience, reaches, type Announcement, type Audience } from '../sim/world'
@@ -21,6 +22,9 @@ export interface AbSnap {
 export interface HeroSnap {
   tp?: number
   tc?: number
+  /** buyback ready at / gold lost at the last death */
+  bb?: number
+  gl?: number
   d: string
   lv: number
   xp: number
@@ -106,6 +110,8 @@ export interface Snapshot {
   feed: any[]
   winner: number | null
   nextPower: number
+  /** per team: when the Glyph of Fortification can be used again */
+  glyph: [number, number]
   queue: { h: number; d: string }[][]
   /** one-shot events, already filtered for the receiving player; sfx[3] = 1 when the event concerns them */
   ev: {
@@ -125,8 +131,8 @@ export interface HostEvents {
 }
 
 /** Typed Unit fields the client needs, sent as `ex` (the only path engine state takes over the wire, plus tk below). */
-const NET_KEYS = ['courierOf', 'liftStart', 'liftEnd', 'delivering', 'tint', 'mega', 'noAuto', 'ping', 'tpUntil'] as const
-const NET_DEFAULT: Record<(typeof NET_KEYS)[number], unknown> = { courierOf: 0, liftStart: 0, liftEnd: 0, delivering: false, tint: '', mega: false, noAuto: false, ping: undefined, tpUntil: 0 }
+const NET_KEYS = ['courierOf', 'liftStart', 'liftEnd', 'delivering', 'tint', 'mega', 'noAuto', 'ping', 'tpUntil', 'bdp'] as const
+const NET_DEFAULT: Record<(typeof NET_KEYS)[number], unknown> = { courierOf: 0, liftStart: 0, liftEnd: 0, delivering: false, tint: '', mega: false, noAuto: false, ping: undefined, tpUntil: 0, bdp: false }
 const NON_HERO_ST = ['maxHp', 'armor', 'dmg', 'ms', 'range', 'bat', 'ap', 'projSpeed']
 
 /* ------------------------------------------------------------- serialization */
@@ -175,7 +181,7 @@ function unitSnap(u: Unit): UnitSnap {
       d: h.def.id, lv: h.level, xp: Math.round(h.xp), pt: h.points, g: Math.round(h.gold),
       it: h.items.map((i) => (i ? { i: i.def.id, c: i.charges, cd: +i.cdUntil.toFixed(2) } : null)),
       ab: h.abilities.map(abSnap), sl: h.stolen ? abSnap(h.stolen) : null,
-      k: h.kills, de: h.deaths, as: h.assists, lh: h.lh, dn: h.dn, rs: +h.respawnAt.toFixed(2), pl: h.isHuman ? 1 : 0, ln: h.lane, sk: h.streak, ea: Math.round(h.earned), hd: Math.round(h.heroDmg), td: Math.round(h.towerDmg), pn: h.pname, tp: h.tpScrolls, tc: +h.tpCd.toFixed(2),
+      k: h.kills, de: h.deaths, as: h.assists, lh: h.lh, dn: h.dn, rs: +h.respawnAt.toFixed(2), pl: h.isHuman ? 1 : 0, ln: h.lane, sk: h.streak, ea: Math.round(h.earned), hd: Math.round(h.heroDmg), td: Math.round(h.towerDmg), pn: h.pname, tp: h.tpScrolls, tc: +h.tpCd.toFixed(2), bb: +h.buybackReadyAt.toFixed(2), gl: h.goldLost,
     }
   }
   return s
@@ -234,7 +240,7 @@ export function snapshotFor(w: World, team: 0 | 1, meId: number, seq: number, ev
     wards: w.wards.filter((d) => d.team === team).map((d) => ({ id: d.id, x: d.x, y: d.y, team: d.team, expires: d.expires })),
     vs: w.visionSpots.filter((v) => v.team === team && v.until > w.time).map((v) => ({ x: Math.round(v.x), y: Math.round(v.y), r: v.r, u: +v.until.toFixed(2) })),
     pings: w.pings.filter((p) => p.team === team).map((p) => ({ id: p.id, x: Math.round(p.x), y: Math.round(p.y), kind: p.kind, owner: p.owner, hero: p.hero, target: p.target, t0: +p.t0.toFixed(2), until: +p.until.toFixed(2), human: p.human })),
-    kills: [w.kills[0], w.kills[1]], feed: w.feed.slice(-8), winner: w.winner, nextPower: w.nextPowerRune,
+    kills: [w.kills[0], w.kills[1]], feed: w.feed.slice(-8), winner: w.winner, nextPower: w.nextPowerRune, glyph: [w.glyphReadyAt[0], w.glyphReadyAt[1]],
     queue: [(courier?.extra.queue || []).map((e: any) => ({ h: e.heroId, d: e.def.id })), (courier?.extra.carry || []).map((e: any) => ({ h: e.heroId, d: e.def.id }))],
     ev: {
       sfx: ev.sfx.filter((e) => reaches(e[3], me)).map((e) => [e[0], e[1], e[2], inAudience(e[3], me) ? 1 : 0, e[4]]),
@@ -265,7 +271,7 @@ export interface DeltaSnap {
   /** top-level fields, present only when changed */
   top?: Partial<Pick<Snapshot, (typeof TOP)[number]>>
 }
-const TOP = ['zones', 'runes', 'wards', 'vs', 'pings', 'kills', 'feed', 'winner', 'nextPower', 'queue'] as const
+const TOP = ['zones', 'runes', 'wards', 'vs', 'pings', 'kills', 'feed', 'winner', 'nextPower', 'glyph', 'queue'] as const
 
 type FieldMap = Map<string, unknown>
 const enc = (v: unknown) => (v === null || typeof v !== 'object' ? v : JSON.stringify(v))
@@ -396,7 +402,7 @@ export class SnapshotDecoder {
     return {
       t: d.t, seq: d.seq, me: d.me, units: [...this.units.values()], projs: d.projs, ev: d.ev,
       zones: t.zones ?? [], runes: t.runes ?? [], wards: t.wards ?? [], vs: t.vs ?? [], pings: t.pings ?? [], kills: t.kills ?? [0, 0], feed: t.feed ?? [], winner: t.winner ?? null,
-      nextPower: t.nextPower ?? 0, queue: t.queue ?? [[], []],
+      nextPower: t.nextPower ?? 0, glyph: t.glyph ?? [RULES.glyphFirst, RULES.glyphFirst], queue: t.queue ?? [[], []],
     }
   }
 }
@@ -470,6 +476,7 @@ export class Replica {
     w.feed = snap.feed
     w.winner = snap.winner as any
     w.nextPowerRune = snap.nextPower
+    w.glyphReadyAt = [snap.glyph[0], snap.glyph[1]]
 
     const byId = new Map<number, Unit>()
     for (const u of w.units) byId.set(u.id, u)
@@ -636,6 +643,8 @@ export class Replica {
     h.pname = hs.pn
     h.tpScrolls = hs.tp ?? 0
     h.tpCd = hs.tc ?? 0
+    h.buybackReadyAt = hs.bb ?? 0
+    h.goldLost = hs.gl ?? 0
     h.earned = hs.ea
     h.heroDmg = hs.hd
     h.towerDmg = hs.td

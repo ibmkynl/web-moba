@@ -16,6 +16,10 @@ export interface Api {
   cast(idx: number, st: AbilityState, t: Unit | undefined, x: number, y: number): string | null
   level(i: number): void
   buy(id: string): string | null
+  /** Pay gold to respawn at once (only while dead). */
+  buyback(): string | null
+  /** Glyph of Fortification: your buildings are invulnerable for a few seconds. */
+  glyph(): string | null
   sell(slot: number): boolean
   /** Use an inventory item (wards and blink need a point). */
   itemAt(slot: number, x?: number, y?: number): string | null
@@ -55,6 +59,12 @@ export class LocalApi implements Api {
   }
   sell(slot: number) {
     return this.w.sellItem(this.me(), slot)
+  }
+  buyback() {
+    return this.w.buyback(this.me())
+  }
+  glyph() {
+    return this.w.useGlyph(this.me().team)
   }
   itemAt(slot: number, x?: number, y?: number) {
     const me = this.me()
@@ -111,6 +121,20 @@ export class NetApi implements Api {
     const me = this.me()
     if (def && me.h!.gold < def.cost) return 'Not enough gold'
     this.send({ t: 'buy', id })
+    return null
+  }
+  buyback() {
+    const me = this.me()
+    if (!me.dead) return 'You are not dead'
+    if (this.w.time < me.h!.buybackReadyAt) return 'Buyback is on cooldown'
+    if (me.h!.gold < this.w.buybackCost(me)) return 'Not enough gold'
+    this.send({ t: 'buyback' })
+    return null
+  }
+  glyph() {
+    const me = this.me()
+    if (this.w.time < this.w.glyphReadyAt[me.team]) return 'Glyph is on cooldown'
+    this.send({ t: 'glyph' })
     return null
   }
   sell(slot: number) {
