@@ -117,9 +117,20 @@ export class Minimap {
         c.fillRect(x - 8, y - 8, 16, 16)
         c.strokeStyle = '#000'
         c.strokeRect(x - 8, y - 8, 16, 16)
+      } else if (u.sub === 'roshan') {
+        // the boss in his pit: a gold-ringed dark dot, easy to spot
+        c.fillStyle = '#1a1210'
+        c.beginPath()
+        c.arc(x, y, 5, 0, Math.PI * 2)
+        c.fill()
+        c.strokeStyle = '#ffd24a'
+        c.lineWidth = 2
+        c.stroke()
       } else if (u.kind === 'creep') {
+        // siege creeps are drawn larger than the other lane creeps
+        const r = u.sub === 'siege' ? 3 : 1.5
         c.fillStyle = col
-        c.fillRect(x - 1.5, y - 1.5, 3, 3)
+        c.fillRect(x - r, y - r, r * 2, r * 2)
       } else if (u.kind === 'courier' && u.team === this.myTeam) {
         c.fillStyle = '#ffe9a8'
         c.beginPath()
@@ -139,7 +150,7 @@ export class Minimap {
       c.save()
       c.translate(r.x * s, r.y * s)
       c.rotate(Math.PI / 4)
-      c.fillStyle = r.kind === 'bounty' ? '#ffd24a' : '#ffffff'
+      c.fillStyle = r.kind === 'bounty' || r.kind === 'aegis' ? '#ffd24a' : '#ffffff'
       c.fillRect(-4, -4, 8, 8)
       c.lineWidth = 1.5
       c.strokeStyle = '#000'

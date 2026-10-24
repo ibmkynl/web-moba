@@ -1,4 +1,4 @@
-import { ROCKS, TREES } from '../sim/obstacles'
+import { ROCKS, TREES, heightAt } from '../sim/obstacles'
 import * as THREE from 'three'
 import { MAP, Pt, TEAM_COLOR, Team, isNeutral } from '../sim/constants'
 import type { Unit } from '../sim/entities'
@@ -439,7 +439,7 @@ export class Renderer3D {
           wings.children.forEach((w) => (w.rotation.x = (w.userData.side as number) * fl))
         }
       }
-      g.position.set(u.x, y, u.y)
+      g.position.set(u.x, y + (u.isBuilding ? 0 : heightAt(u.x, u.y)), u.y)
       if (!u.isBuilding) g.rotation.y = -u.facing + Math.PI / 2 * 0 // model faces +X
       const moving = Math.abs(u.vx) + Math.abs(u.vy) > 1
       if (m.body && !u.isBuilding) {
@@ -761,7 +761,7 @@ export class Renderer3D {
         const col = RUNE_INFO[r.kind].color
         g = new THREE.Group()
         const gem = new THREE.Mesh(
-          r.kind === 'bounty' ? new THREE.DodecahedronGeometry(30) : new THREE.OctahedronGeometry(36),
+          r.kind === 'bounty' ? new THREE.DodecahedronGeometry(30) : r.kind === 'aegis' ? new THREE.IcosahedronGeometry(42) : new THREE.OctahedronGeometry(36),
           new THREE.MeshStandardMaterial({ color: col, emissive: new THREE.Color(col), emissiveIntensity: 1.3, roughness: 0.25, flatShading: true }),
         )
         gem.position.y = 95
@@ -1061,9 +1061,10 @@ export class Renderer3D {
       c.textBaseline = 'middle'
       c.lineWidth = 4
       c.strokeStyle = 'rgba(0,0,0,0.85)'
-      c.strokeText(info.name + ' Rune', sp.x, sp.y)
+      const label = r.kind === 'aegis' ? info.name : info.name + ' Rune'
+      c.strokeText(label, sp.x, sp.y)
       c.fillStyle = info.color
-      c.fillText(info.name + ' Rune', sp.x, sp.y)
+      c.fillText(label, sp.x, sp.y)
     }
 
     // floating text

@@ -2,7 +2,7 @@
  * Static map obstacles shared by the simulation (collision + pathfinding) and the 3D terrain builder:
  * forest trees and big rocks. Generated deterministically so server and every client agree.
  */
-import { BASE_POS, CAMPS, FOUNTAIN_POS, LANES, MAP, PATHS, POWER_RUNES, Path, Pt, T3_POS, T4_POS, TOWER_ARCS, TRAILS, WALLS, mirror } from './constants'
+import { BASE_POS, CAMPS, FOUNTAIN_POS, LANES, MAP, PATHS, PIT_R, POWER_RUNES, Path, Pt, RIVER_HALF, ROSHAN_PIT, T3_POS, T4_POS, TOWER_ARCS, TRAILS, WALLS, mirror } from './constants'
 
 /** Deterministic seeded random generator (mulberry32). */
 export function mulberry(seed: number) {
@@ -15,15 +15,41 @@ export function mulberry(seed: number) {
   }
 }
 
-/** The river centre line (same curve the 2D minimap and the 3D water use). */
-export const RIVER: Pt[] = []
-for (let i = -2; i <= 22; i++) {
-  const t = i / 20
-  const base = t * MAP
-  const wob = Math.sin(t * 9) * 260
-  RIVER.push({ x: base - wob * 0.7, y: base + wob * 0.7 })
-}
+/**
+ * The river centre line (same curve the 2D minimap and the 3D water use). It starts in Roshan's pit, runs diagonally past
+ * the mid lane and ends in a pool: the exact mirror of its start, so both teams get the same river.
+ */
+const RIVER_HALF_PTS: Pt[] = [
+  ROSHAN_PIT,
+  { x: 2900, y: 2750 },
+  { x: 3250, y: 3150 },
+  { x: 4050, y: 3950 },
+]
+const RIVER_CTRL: Pt[] = [...RIVER_HALF_PTS, ...[...RIVER_HALF_PTS].reverse().map(mirror)]
+export const RIVER: Pt[] = catmull(RIVER_CTRL, 6)
 export const RIVER_PATH = new Path(RIVER)
+/** The river water ends in rounded pools: half width of the water at distance `s` along the river (rounded end caps: the width follows a circle over the last 600). */
+export const riverHalfAt = (s: number) => RIVER_HALF * Math.max(0.12, Math.sqrt(Math.min(1, Math.min(s, RIVER_PATH.len - s) / 600)))
+
+/** Catmull-Rom spline through the points, `per` samples per span. */
+function catmull(p: Pt[], per: number): Pt[] {
+  const out: Pt[] = []
+  for (let i = 0; i < p.length - 1; i++) {
+    const p0 = p[Math.max(0, i - 1)]
+    const p1 = p[i]
+    const p2 = p[i + 1]
+    const p3 = p[Math.min(p.length - 1, i + 2)]
+    for (let s = 0; s < per; s++) {
+      const t = s / per
+      const t2 = t * t
+      const t3 = t2 * t
+      const f = (a: number, b: number, c: number, d: number) => 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3)
+      out.push({ x: f(p0.x, p1.x, p2.x, p3.x), y: f(p0.y, p1.y, p2.y, p3.y) })
+    }
+  }
+  out.push(p[p.length - 1])
+  return out
+}
 export const LANE_PATHS = LANES.map((l) => PATHS[0][l])
 const TRAIL_PATHS = TRAILS.map((t) => new Path(t))
 
@@ -50,8 +76,8 @@ const nearWall = (x: number, y: number, d: number) => {
   return false
 }
 
-/** Where each lane comes closest to the river (kept free of clutter so heroes can cross). */
-const FORDS: Pt[] = LANE_PATHS.map((path) => {
+/** Where a lane crosses the river (only the mid lane does; the side lanes stay on their own bank). Kept free of clutter. */
+export const FORDS: Pt[] = LANE_PATHS.flatMap((path) => {
   let best = Infinity
   let bp = path.pts[0]
   for (let s = 0; s <= path.len; s += 20) {
@@ -62,8 +88,29 @@ const FORDS: Pt[] = LANE_PATHS.map((path) => {
       bp = p
     }
   }
-  return bp
+  return best < RIVER_HALF ? [bp] : []
 })
+
+const smooth = (a: number, b: number, x: number) => {
+  const t = Math.max(0, Math.min(1, (x - a) / (b - a)))
+  return t * t * (3 - 2 * t)
+}
+/** The mid lane runs through the lowground; the side lanes, jungles and bases are the highground. */
+const midDist = (x: number, y: number) => LANE_PATHS[1].distTo({ x, y })
+/**
+ * Terrain height. Never above 0: the river bed and Roshan's pit sink, the mid lane is a shallow valley. Everything else
+ * stays at 0 because effects are drawn at ground level and a raised base would bury them.
+ */
+export function heightAt(x: number, y: number): number {
+  let h = 0
+  h -= 34 * (1 - smooth(RIVER_HALF * 0.55, RIVER_HALF + 110, riverDist(x, y)))
+  h -= 20 * (1 - smooth(230, 520, midDist(x, y)))
+  h -= 45 * (1 - smooth(PIT_R * 0.8, PIT_R + 160, Math.hypot(x - ROSHAN_PIT.x, y - ROSHAN_PIT.y)))
+  return Math.max(-70, h)
+}
+const POOL: Pt = mirror(ROSHAN_PIT)
+/** Within `d` of Roshan's pit or the pool at the other end of the river. */
+const nearRiverEnd = (x: number, y: number, d: number) => Math.hypot(x - ROSHAN_PIT.x, y - ROSHAN_PIT.y) < d || Math.hypot(x - POOL.x, y - POOL.y) < d
 /** Every tower, ancient and fountain (both teams): nothing may be generated on or next to them. */
 const STRUCTURES: Pt[] = (() => {
   const out: Pt[] = [...BASE_POS, ...FOUNTAIN_POS]
@@ -100,7 +147,7 @@ function genTrees(): TreeO[] {
   const r = mulberry(901)
   const ok = (x: number, y: number) =>
     x > 60 && y > 60 && x < MAP - 60 && y < MAP - 60 &&
-    laneDist(x, y) > 410 && riverDist(x, y) > 430 && baseDist(x, y) > 1350 && fountainDist(x, y) > 700 &&
+    laneDist(x, y) > 410 && riverDist(x, y) > RIVER_HALF + 170 && !nearRiverEnd(x, y, PIT_R + 420) && baseDist(x, y) > 1350 && fountainDist(x, y) > 700 &&
     !nearCamp(x, y, 340) && !nearFord(x, y, 650) && !nearTrail(x, y, 150) && !nearWall(x, y, 260) && !nearRune(x, y, 260) && !nearStruct(x, y, 330)
   for (let g = 0; g < 40000 && out.length < 2000; g++) {
     const edge = r() < 0.3
@@ -126,7 +173,7 @@ function genRocks(): RockO[] {
   const add = (x: number, y: number, w: number, h: number, tilt = 0.25) => out.push({ x, y, w, h, tilt })
   const ok = (x: number, y: number, lane: number, base = 1250) =>
     x > 40 && y > 40 && x < MAP - 40 && y < MAP - 40 && laneDist(x, y) > lane && baseDist(x, y) > base && fountainDist(x, y) > 650 &&
-    !nearFord(x, y, 650) && !nearWall(x, y, 240) && !nearTrail(x, y, 120) && !nearStruct(x, y, 460)
+    !nearFord(x, y, 650) && !nearWall(x, y, 240) && !nearTrail(x, y, 120) && !nearStruct(x, y, 460) && !nearRiverEnd(x, y, PIT_R + 300)
 
   // cliff ridges along both river banks
   for (let s = 0; s < RIVER_PATH.len; s += 140) {
@@ -147,6 +194,18 @@ function genRocks(): RockO[] {
       if (r() < 0.6) add(x + nx * sd * 70, y + ny * sd * 70, w * 0.6, w * (0.5 + r() * 0.5))
     }
   }
+  // Roshan's pit and the pool at the other end of the river: a ring of cliff rocks, open where the river comes in
+  const ring = (c: Pt, rad: number, open: number) => {
+    for (let a = 0; a < Math.PI * 2; a += 0.3) {
+      let d = Math.abs(a - open)
+      d = Math.min(d, Math.PI * 2 - d)
+      if (d < 0.62) continue
+      const w = 110 + r() * 80
+      add(c.x + Math.cos(a) * (rad + r() * 50), c.y + Math.sin(a) * (rad + r() * 50), w, w * (0.9 + r() * 0.8), 0.3)
+    }
+  }
+  ring(ROSHAN_PIT, PIT_R + 120, Math.PI / 4)
+  ring(POOL, RIVER_HALF + 150, (5 * Math.PI) / 4)
   // low rock walls lining the lanes (well outside the walkable corridor)
   for (const path of LANE_PATHS) {
     for (let s = 150; s < path.len - 150; s += 120) {

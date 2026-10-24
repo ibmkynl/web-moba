@@ -1,4 +1,4 @@
-import { Lane, LANES, MAP, PATHS, Pt, TOWER_ARCS, dist, isNeutral } from './constants'
+import { Lane, LANES, MAP, PATHS, Pt, RULES, TOWER_ARCS, dist, isNeutral } from './constants'
 import type { HeroState, Stats, Unit } from './entities'
 import type { TeamBrain, TeamOrder } from './team'
 import type { World } from './world'
@@ -8,7 +8,9 @@ import { LATE_BUILD } from './recommend'
 export function aiThink(w: World, u: Unit) {
   switch (u.kind) {
     case 'creep':
-      return isNeutral(u.team) ? neutralAI(w, u) : creepAI(w, u)
+      if (!isNeutral(u.team)) return creepAI(w, u)
+      neutralAI(w, u)
+      return u.sub === 'roshan' ? roshanSlam(w, u) : undefined
     case 'summon':
       return summonAI(w, u)
     case 'tower':
@@ -36,6 +38,10 @@ function neutralAI(w: World, u: Unit) {
   if (u.forced || u.isStunned()) return
   const home: Pt = u.extra.home
   const camp = u.extra.camp
+  // out of the fight, jungle monsters recover: quickly while walking home, slowly while standing there
+  if (u.hp < u.st.maxHp && (u.extra.returning || w.time - u.lastDamagedByEnemy > 8)) {
+    u.hp = Math.min(u.st.maxHp, u.hp + u.st.maxHp * (u.extra.returning ? RULES.neutralReturnRegen : RULES.neutralReturnRegen / 5) * 0.2)
+  }
   if (u.extra.returning) {
     u.aiTarget = null
     if (dist(u, home) < 60) {
@@ -54,12 +60,15 @@ function neutralAI(w: World, u: Unit) {
     const prov: Unit | undefined = u.extra.provoked
     if (prov && !prov.dead && w.canAttackTarget(u, prov)) t = prov
   }
-  if (!t) {
+  // Roshan only fights back; every other monster also attacks whoever walks up to its camp
+  if (!t && u.sub !== 'roshan') {
     let bd = 520
     for (const e of w.units) {
-      if (e.dead || isNeutral(e.team) || e.isBuilding || e.kind === 'courier' || e.kind === 'creep') continue
+      if (e.dead || isNeutral(e.team) || e.isBuilding || e.kind === 'courier') continue
       if (e.isInvulnerable() || e.isInvisible(w.time)) continue
       const d = dist(u, e)
+      // a lane creep only draws the camp when it has been led into it
+      if (e.kind === 'creep' && d > 380) continue
       if (d < bd) {
         bd = d
         t = e
@@ -87,7 +96,9 @@ function creepAI(w: World, u: Unit) {
 
   // how far a creep is willing to follow its target before giving up
   const leash = (e: Unit) => (e.isBuilding ? reach + 120 : e.kind === 'hero' ? reach + 300 : reach + 420)
-  const score = (e: Unit) => dist(u, e) - e.radius + (e.isBuilding ? 220 : 0)
+  // siege creeps go for buildings: they reach them from far away and are weak against everything else
+  const siege = u.sub === 'siege'
+  const score = (e: Unit) => dist(u, e) - e.radius + (e.isBuilding ? (siege ? -1200 : 220) : 0)
 
   // 1. keep the current target only while it is still valid and within the leash
   let t = u.aiTarget
@@ -97,10 +108,12 @@ function creepAI(w: World, u: Unit) {
   let best: Unit | null = null
   let bs = Infinity
   for (const e of w.units) {
-    if (e.dead || e.team === u.team || e.kind === 'fountain' || isNeutral(e.team)) continue
+    if (e.dead || e.team === u.team || e.kind === 'fountain') continue
+    // lane creeps leave jungle monsters alone unless one is attacking them
+    if (isNeutral(e.team) && e.aiTarget !== u) continue
     if (e.isInvulnerable() || !w.isVisible(u.team, e)) continue
     const d = dist(u, e) - e.radius
-    if (d > (e.isBuilding ? 330 : 520)) continue
+    if (d > (e.isBuilding ? (siege ? reach + 60 : 330) : 520)) continue
     const sc = score(e)
     if (sc < bs) {
       bs = sc
@@ -111,7 +124,8 @@ function creepAI(w: World, u: Unit) {
 
   // 3. never wander far from the lane: give up the chase and walk back
   const offLane = path.distTo(u)
-  if (t && !t.isBuilding && offLane > 700) t = null
+  // (a jungle monster that is attacking this creep is the exception: it fights back wherever it is)
+  if (t && !t.isBuilding && offLane > 700 && !(isNeutral(t.team) && t.aiTarget === u)) t = null
 
   u.aiTarget = t
   if (t) {
@@ -132,6 +146,20 @@ function creepAI(w: World, u: Unit) {
     dest = path.pts[Math.min(u.pathIdx, path.pts.length - 1)]
   }
   if (!sameMove(u, dest)) u.order = { t: 'move', x: dest.x, y: dest.y }
+}
+
+/** Roshan's Slam: every few seconds he stuns and hurts everything around him while he is fighting. */
+function roshanSlam(w: World, u: Unit) {
+  const target = u.aiTarget
+  if (!target || target.dead || u.isStunned() || u.casting || w.time < (u.extra.slamAt ?? 0) || dist(u, target) > 330) return
+  u.extra.slamAt = w.time + RULES.roshSlamCd
+  w.vfx('ring', { x: u.x, y: u.y, r0: 30, r1: 340, dur: 0.5, color: '#ffb050' })
+  w.emit('hit', u.x, u.y)
+  for (const e of w.enemiesIn(u.team, u.x, u.y, 330)) {
+    if (e.isImmune() || e.kind === 'courier') continue
+    w.damage(u, e, RULES.roshSlamDmg, 'magical')
+    if (!e.dead) w.addBuff(e, { id: 'roshan_slam', expires: w.time + RULES.roshSlamStun, stun: true, src: u, color: '#ffb050', label: 'Slam' })
+  }
 }
 
 function summonAI(w: World, u: Unit) {
@@ -328,7 +356,7 @@ function lateShopping(w: World, u: Unit, b: Brain) {
     // cheap items the bot is willing to trade in (half their price comes back)
     const sellable = h.items
       .map((it, i) => ({ it, i }))
-      .filter((x) => x.it && !['boots', 'travel', 'phase', 'treads', 'ward'].includes(x.it.def.id) && x.it.def.cost < 1300 && !x.it.def.active?.startsWith('tp'))
+      .filter((x) => x.it && !x.it.def.noShop && !['boots', 'travel', 'phase', 'treads', 'ward'].includes(x.it.def.id) && x.it.def.cost < 1300 && !x.it.def.active?.startsWith('tp'))
       .sort((p, q) => p.it!.def.cost - q.it!.def.cost)
     const full = h.items.every(Boolean) || w.pendingFor(u).length >= h.items.filter((i) => !i).length
     let refund = 0
@@ -612,6 +640,12 @@ function botTeamPlan(c: BotCtx): boolean {
       const tgt = w.heroes.find((x) => x.id === ord.targetId)
       if (tgt && !tgt.dead && w.canHit(u, tgt)) w.orderAttack(u, tgt)
       else w.orderAMove(u, ord.x, ord.y)
+      return true
+    }
+    if (ord.kind === 'roshan') {
+      const r = w.roshan
+      if (r && !r.dead && dist(u, r) < 900 && w.canHit(u, r)) w.orderAttack(u, r)
+      else if (dist(u, ord) > 350) w.orderAMove(u, ord.x, ord.y)
       return true
     }
     if (ord.kind === 'push') {

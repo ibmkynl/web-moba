@@ -162,6 +162,8 @@ export interface ItemDef {
     lifesteal: number
   }>
   consumable?: boolean
+  /** not sold in the shop and cannot be sold (dropped by Roshan) */
+  noShop?: boolean
   active?: 'salve' | 'clarity' | 'blink' | 'ward' | 'tp' | 'bkb' | 'shiva' | 'refresher' | 'force' | 'phase'
   mana?: number
   cd?: number
@@ -172,6 +174,8 @@ export interface ItemState {
   def: ItemDef
   charges: number
   cdUntil: number
+  /** the item disappears at this time (the Aegis); 0 = never */
+  expiresAt?: number
 }
 
 export interface HeroDef {
@@ -223,6 +227,12 @@ export class HeroState {
   lh = 0
   dn = 0
   respawnAt = 0
+  /** buyback is usable again at this time */
+  buybackReadyAt = 0
+  /** waiting to be revived by the Aegis where the hero fell */
+  aegisAt: Pt | null = null
+  /** gold lost at the last death (shown on the respawn screen) */
+  goldLost = 0
   lastCast: { def: AbilityDef; level: number } | null = null
   /** controlled by a person (no bot AI); which hero a client views is World.player */
   isHuman = false
@@ -340,6 +350,8 @@ export class Unit {
   tint = ''
   /** lane creep upgraded to mega */
   mega = false
+  /** building: backdoor protection is active (no enemy lane creeps near) */
+  bdp = false
   /** never auto-acquires targets (couriers, summons, bots and players pick their own) */
   noAuto = false
   /** courier on a delivery run */

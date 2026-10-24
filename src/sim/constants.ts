@@ -37,8 +37,35 @@ export const FOUNTAIN_POS: Pt[] = [
   { x: 9150, y: 450 },
 ]
 
-/** Lane polylines, from the Radiant ancient to the Dire ancient. */
-const RAW: Record<Lane, Pt[]> = {
+/**
+ * Rounds the corners of a polyline: each interior vertex becomes a quadratic curve that starts and ends `radius` (one value,
+ * or one per interior vertex) before and after it, less when the neighbouring segments are short, so lanes sweep around the
+ * map corners instead of kinking.
+ */
+export function roundCorners(pts: Pt[], radius: number | number[], steps = 8): Pt[] {
+  const out: Pt[] = [pts[0]]
+  for (let i = 1; i < pts.length - 1; i++) {
+    const a = pts[i - 1]
+    const b = pts[i]
+    const c = pts[i + 1]
+    const la = Math.hypot(b.x - a.x, b.y - a.y)
+    const lc = Math.hypot(c.x - b.x, c.y - b.y)
+    const r = typeof radius === 'number' ? radius : radius[i - 1]
+    const k = Math.min(r, la * 0.45, lc * 0.45)
+    const p0 = { x: b.x + ((a.x - b.x) / la) * k, y: b.y + ((a.y - b.y) / la) * k }
+    const p1 = { x: b.x + ((c.x - b.x) / lc) * k, y: b.y + ((c.y - b.y) / lc) * k }
+    for (let s = 0; s <= steps; s++) {
+      const t = s / steps
+      const u = 1 - t
+      out.push({ x: u * u * p0.x + 2 * u * t * b.x + t * t * p1.x, y: u * u * p0.y + 2 * u * t * b.y + t * t * p1.y })
+    }
+  }
+  out.push(pts[pts.length - 1])
+  return out
+}
+
+/** Lane polylines, from the Radiant ancient to the Dire ancient (corners rounded below). */
+const RAW_SHARP: Record<Lane, Pt[]> = {
   top: [
     { x: 1100, y: 8500 },
     { x: 900, y: 6800 },
@@ -57,6 +84,13 @@ const RAW: Record<Lane, Pt[]> = {
     { x: 8700, y: 2800 },
     { x: 8500, y: 1100 },
   ],
+}
+
+/** The side lanes sweep around the map corners (radius 1000); the gentle bends near the bases get a small radius. */
+const RAW: Record<Lane, Pt[]> = {
+  top: roundCorners(RAW_SHARP.top, [380, 1000, 1000]),
+  mid: RAW_SHARP.mid,
+  bot: roundCorners(RAW_SHARP.bot, [380, 1000, 1000]),
 }
 
 export class Path {
@@ -156,14 +190,20 @@ export const XP_TABLE = [
 ]
 export const MAX_LEVEL = 25
 
+/** Roshan's pit: a hollow at the north-west end of the river (the river is its source). Radius of the pit floor. */
+export const ROSHAN_PIT: Pt = { x: 2450, y: 2300 }
+export const PIT_R = 300
+/** Half the width of the water; the river runs from the pit to a pool at the mirrored south-east end, short of the map corners. */
+export const RIVER_HALF = 330
+
 export const dist = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y)
 export const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
 export const lerp = (a: number, b: number, t: number) => a + (b - a) * t
 
 /** Power rune spots in the river (one near each side lane). */
 export const POWER_RUNES: Pt[] = [
-  { x: 2802, y: 2958 },
-  { x: 6717, y: 6723 },
+  { x: 3330, y: 3300 },
+  { x: 6270, y: 6300 },
 ]
 /** Bounty rune spots in the jungles: two per side. */
 export const BOUNTY_RUNES: Pt[] = [
@@ -211,6 +251,21 @@ const RAD_GATES: Gate[] = [
   { inside: { x: WALL_N - 380, y: 8700 }, outside: { x: WALL_N + 380, y: 8700 }, mid: { x: WALL_N, y: 8700 } },
 ]
 export const GATES: Gate[][] = [RAD_GATES, RAD_GATES.map((g) => ({ inside: mirror(g.inside), outside: mirror(g.outside), mid: mirror(g.mid) }))]
+
+/** Distance from a ramp's centre within which the ground counts as low ground (units on the ramp can be seen from below). */
+const RAMP_R = 700
+
+/**
+ * 1 on a base's high ground (inside the cliff walls, past the ramps), 0 everywhere else. Units on low ground cannot see
+ * units on high ground unless something of their team on high ground (or flying) already sees them.
+ */
+export function groundLevel(x: number, y: number): 0 | 1 {
+  const rad = x < WALL_N && y > WALL_Y
+  const dire = x > MAP - WALL_N && y < WALL_N
+  if (!rad && !dire) return 0
+  for (const g of GATES[rad ? 0 : 1]) if (Math.hypot(x - g.mid.x, y - g.mid.y) < RAMP_R) return 0
+  return 1
+}
 
 function distPtSeg(px: number, py: number, s: Seg) {
   const dx = s.b.x - s.a.x
@@ -308,3 +363,48 @@ export function mergeUnique<T>(label: string, ...tables: Record<string, T>[]): R
 }
 /** Indexes a list by id; a duplicate id throws. */
 export const indexUnique = <T extends { id: string }>(label: string, list: T[]) => mergeUnique(label, ...list.map((x) => ({ [x.id]: x })))
+
+/* ------------------------------------------------------------------ rules */
+// Tunable gameplay numbers, kept together so balance passes do not touch the simulation code. Values marked "tune" are first
+// guesses to be settled by playtesting; the rest follow the Dota 2 wiki.
+
+export const RULES = {
+  /** fraction of the gold a hero is holding that is lost on death */
+  deathGoldLoss: 0.4,
+  /** buyback cost = base + net worth / div; cooldown in seconds */
+  buybackBase: 100,
+  buybackDiv: 13,
+  buybackCd: 480,
+  /** Glyph of Fortification: building invulnerability (s), shared team cooldown (s), first use */
+  glyphDur: 7,
+  glyphCd: 300,
+  glyphFirst: 180,
+  /** backdoor protection: damage reduction, regen (HP/s), detection radius of towers and of the ancient, seconds it stays off after a lane creep leaves */
+  backdoorReduce: 0.5,
+  backdoorRegen: 180,
+  backdoorRadius: 900,
+  backdoorAncientRadius: 4000,
+  backdoorLinger: 3,
+  /** summons deal even less to a protected building */
+  backdoorSummonReduce: 0.75,
+  /** siege creep (tune): every Nth wave, damage multiplier against buildings and against everything else */
+  siegeEvery: 10,
+  siegeVsBuilding: 3,
+  siegeVsUnit: 0.5,
+  siegeMagicRes: 0.8,
+  /** camp stacking: most packs a camp can hold (tune) and the area (by tier) that must be empty for a spawn */
+  maxStacks: 4,
+  campArea: [380, 440, 520] as number[],
+  neutralReturnRegen: 0.25,
+  /** Roshan (tune): respawn window (s), pit radius, Aegis lifetime on the ground and in the inventory (s) */
+  roshMin: 480,
+  roshMax: 660,
+  roshGold: 250,
+  roshSlamCd: 9,
+  roshSlamDmg: 120,
+  roshSlamStun: 1.2,
+  aegisGround: 300,
+  aegisLife: 300,
+  aegisRevive: 5,
+  aegisTeamOnly: 15,
+}

@@ -271,6 +271,8 @@ function command(p: Player, m: any) {
     case 'level': w.levelAbility(h, num(m.i)); break
     case 'buy': err(w.buyItem(h, String(m.id))); break
     case 'sell': w.sellItem(h, num(m.slot)); break
+    case 'buyback': err(w.buyback(h)); break
+    case 'glyph': err(w.useGlyph(h.team)); break
     case 'item': err(w.useItem(h, num(m.slot), m.x === undefined ? undefined : num(m.x), m.y === undefined ? undefined : num(m.y))); break
     case 'ward': err(w.orderWard(h, num(m.slot), num(m.x), num(m.y))); break
     case 'tp': err(w.useTeleport(h, num(m.x), num(m.y))); break

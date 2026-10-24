@@ -1,5 +1,5 @@
 import {
-  BASE_POS, BOUNTY_RUNES, CAMPS, FOUNTAIN_POS, Lane, LANES, MAP, MAX_LEVEL, PATHS, POWER_RUNES, Pt, T3_POS, T4_POS, TOWER_ARCS, Team, XP_TABLE, LANE_SLOTS, NEUTRAL, isNeutral, clamp, dist, mirror, pushOutOfWalls, shuffle,
+  BASE_POS, BOUNTY_RUNES, CAMPS, FOUNTAIN_POS, groundLevel, Lane, LANES, MAP, MAX_LEVEL, PATHS, POWER_RUNES, ROSHAN_PIT, Pt, RULES, TEAM_NAME, T3_POS, T4_POS, TOWER_ARCS, Team, XP_TABLE, LANE_SLOTS, NEUTRAL, isNeutral, clamp, dist, mirror, pushOutOfWalls, shuffle,
 } from './constants'
 import {
   AbilityState, Buff, CastTarget, DmgType, HeroDef, HeroState, ItemState, Order, Stats, Unit,
@@ -45,6 +45,7 @@ const ANN_TEXT = {
   tower_down: ['Your tower has fallen', 'Enemy tower destroyed'],
   ancient_down: ['Defeat', 'Victory!'],
   mega: ['Mega creeps are coming!', 'Enemy mega creeps incoming'],
+  roshan_down: ['Your team slew Roshan!', 'Roshan was slain by the enemy'],
 } as const
 export type AnnKind = keyof typeof ANN_TEXT
 /** An announcer line. `team` = the side the news is good for (tone); `kind` + `about` make the text viewer-relative. */
@@ -111,13 +112,17 @@ export interface KillOpts {
   denied?: boolean
 }
 
-export type RuneKind = 'haste' | 'dd' | 'regen' | 'arcane' | 'invis' | 'bounty'
+export type RuneKind = 'haste' | 'dd' | 'regen' | 'arcane' | 'invis' | 'bounty' | 'aegis'
 export interface Rune {
   id: number
   kind: RuneKind
   x: number
   y: number
   at: number
+  /** only this team may take it until `teamUntil` (the Aegis); it vanishes at `expires` */
+  team?: Team
+  teamUntil?: number
+  expires?: number
 }
 export const RUNE_INFO: Record<RuneKind, { name: string; color: string; dur: number }> = {
   haste: { name: 'Haste', color: '#ff5a3a', dur: 22 },
@@ -126,6 +131,7 @@ export const RUNE_INFO: Record<RuneKind, { name: string; color: string; dur: num
   arcane: { name: 'Arcane', color: '#d08aff', dur: 50 },
   invis: { name: 'Invisibility', color: '#cfd8ff', dur: 45 },
   bounty: { name: 'Bounty', color: '#ffd24a', dur: 0 },
+  aegis: { name: 'Aegis of the Immortal', color: '#ffd24a', dur: 0 },
 }
 
 /** Temporary team vision (skills used on an area, Thundergod's Wrath hits...). `follow` makes the spot track a unit. */
@@ -136,6 +142,8 @@ export interface VisionSpot {
   r: number
   until: number
   follow?: Unit
+  /** ground level it sees from (default: the level of its own position) */
+  lvl?: number
 }
 
 /**
@@ -214,6 +222,7 @@ export interface WorldView {
   readonly kills: number[]
   readonly winner: Team | null
   readonly nextPowerRune: number
+  readonly glyphReadyAt: [number, number]
   readonly isDay: boolean
   vfxQ: any[]
   player: Unit
@@ -222,6 +231,7 @@ export interface WorldView {
   visionOf(u: Unit): number
   nightAmount(): number
   netWorth(h: Unit): number
+  buybackCost(h: Unit): number
   canLevel(h: Unit, i: number): boolean
   nearShop(h: Unit): boolean
   pendingFor(h: Unit): ItemDef[]
@@ -262,6 +272,9 @@ export class World implements WorldView {
   /** The hero this client views and controls. Client-side only: the simulation never reads it (the host serves many players). */
   player!: Unit
   /** the first creep waves leave the barracks 15s into the game, then every 30s */
+  /** Glyph of Fortification: shared team cooldown (time it is ready again) */
+  glyphReadyAt: [number, number] = [RULES.glyphFirst, RULES.glyphFirst]
+  private bdTimer = 0
   nextWave = 15
   waveNo = 0
   vis: [Set<number>, Set<number>] = [new Set(), new Set()]
@@ -546,11 +559,12 @@ export class World implements WorldView {
   computeVision() {
     for (const team of [0, 1] as Team[]) {
       const set = new Set<number>()
-      const obs: { x: number; y: number; r: number }[] = []
-      for (const u of this.units) if (u.team === team && !u.dead) obs.push({ x: u.x, y: u.y, r: this.visionOf(u) })
-      for (const z of this.zones) if (z.reveal && z.team === team && this.time >= z.start) obs.push({ x: z.x, y: z.y, r: z.r + 100 })
+      // each observer also has a ground level: low ground cannot see high ground (flying couriers see everything)
+      const obs: { x: number; y: number; r: number; lvl: number }[] = []
+      for (const u of this.units) if (u.team === team && !u.dead) obs.push({ x: u.x, y: u.y, r: this.visionOf(u), lvl: u.kind === 'courier' ? 1 : groundLevel(u.x, u.y) })
+      for (const z of this.zones) if (z.reveal && z.team === team && this.time >= z.start) obs.push({ x: z.x, y: z.y, r: z.r + 100, lvl: groundLevel(z.x, z.y) })
       const wards = this.wards.filter((wd) => wd.team === team)
-      for (const wd of wards) obs.push({ x: wd.x, y: wd.y, r: WARD_VISION })
+      for (const wd of wards) obs.push({ x: wd.x, y: wd.y, r: WARD_VISION, lvl: groundLevel(wd.x, wd.y) })
       for (const sp of this.visionSpots) {
         if (sp.team !== team || sp.until <= this.time) continue
         if (sp.follow) {
@@ -558,7 +572,7 @@ export class World implements WorldView {
           sp.x = sp.follow.x
           sp.y = sp.follow.y
         }
-        obs.push({ x: sp.x, y: sp.y, r: sp.r })
+        obs.push({ x: sp.x, y: sp.y, r: sp.r, lvl: sp.lvl ?? groundLevel(sp.x, sp.y) })
       }
       for (const u of this.units) {
         if (u.dead) continue
@@ -571,8 +585,9 @@ export class World implements WorldView {
           if (wards.some((wd) => (u.x - wd.x) ** 2 + (u.y - wd.y) ** 2 <= WARD_VISION * WARD_VISION)) set.add(u.id)
           continue
         }
+        const ul = groundLevel(u.x, u.y)
         for (const o of obs) {
-          if ((u.x - o.x) ** 2 + (u.y - o.y) ** 2 <= o.r * o.r) {
+          if (o.lvl >= ul && (u.x - o.x) ** 2 + (u.y - o.y) ** 2 <= o.r * o.r) {
             set.add(u.id)
             break
           }
@@ -627,9 +642,9 @@ export class World implements WorldView {
   }
 
   /** Give `team` vision of a circle (or of a moving unit) for `dur` seconds. */
-  grantVision(team: Team, x: number, y: number, r: number, dur: number, follow?: Unit) {
+  grantVision(team: Team, x: number, y: number, r: number, dur: number, follow?: Unit, lvl?: number) {
     if ((team as number) === 2) return
-    this.visionSpots.push({ team, x, y, r, until: this.time + dur, follow })
+    this.visionSpots.push({ team, x, y, r, until: this.time + dur, follow, lvl })
     if (this.visionSpots.length > 120) this.visionSpots.shift()
     this.visTimer = 0
   }
@@ -849,6 +864,7 @@ export class World implements WorldView {
       d *= (1 - t.st.magicRes) * (ethereal ? 1.4 : 1)
     }
     if (d <= 0) return 0
+    if (t.bdp && src && src.team !== t.team) d *= 1 - (src.kind === 'summon' ? RULES.backdoorSummonReduce : RULES.backdoorReduce)
     if (o.nonLethal) d = Math.min(d, t.hp - 1)
     if (d <= 0) return 0
     t.hp -= d
@@ -894,6 +910,68 @@ export class World implements WorldView {
   netWorth(h: Unit) {
     const hs = h.h!
     return Math.round(hs.gold + hs.items.reduce((n, it) => n + (it ? it.def.cost * Math.max(1, it.charges) : 0), 0))
+  }
+
+  /** Glyph of Fortification: every standing building of the team is invulnerable for a few seconds. */
+  useGlyph(team: Team): string | null {
+    if (this.winner !== null) return 'The match is over'
+    if (this.time < this.glyphReadyAt[team]) return `Glyph is on cooldown (${Math.ceil(this.glyphReadyAt[team] - this.time)}s)`
+    this.glyphReadyAt[team] = this.time + RULES.glyphCd
+    for (const b of this.units) {
+      if (b.team !== team || b.dead || !b.isBuilding || b.kind === 'fountain') continue
+      this.addBuff(b, { id: 'glyph', expires: this.time + RULES.glyphDur, invuln: true, color: '#7ad0ff', label: 'Glyph of Fortification' })
+      this.vfx('ring', { x: b.x, y: b.y, r0: 40, r1: 260, dur: 0.7, color: '#7ad0ff' })
+    }
+    this.pushFeed(`${TEAM_NAME[team]} used Glyph of Fortification`, team)
+    this.emit('glyph', 0, 0, { all: true })
+    return null
+  }
+
+  /**
+   * Backdoor protection: a tier 2+ tower or the ancient with no enemy lane creep close by takes less damage from enemies
+   * and heals. Tier 2 towers look 900 around themselves; tier 3, 4 and the ancient share one base-wide check.
+   */
+  private stepBackdoor() {
+    for (const team of [0, 1] as Team[]) {
+      const anc = this.ancientOf(team)
+      const near = (x: number, y: number, r: number) => {
+        for (const c of this.units) {
+          if (c.kind !== 'creep' || c.dead || c.team === team || isNeutral(c.team)) continue
+          if ((c.x - x) ** 2 + (c.y - y) ** 2 <= r * r) return true
+        }
+        return false
+      }
+      const baseHot = !!anc && near(anc.x, anc.y, RULES.backdoorAncientRadius)
+      for (const b of this.units) {
+        if (b.team !== team || b.dead || (b.kind !== 'tower' && b.kind !== 'ancient')) continue
+        if (b.kind === 'tower' && b.tier === 0) continue
+        const hot = b.kind === 'tower' && b.tier === 1 ? near(b.x, b.y, RULES.backdoorRadius) : baseHot
+        if (hot) b.extra.bdOff = this.time + RULES.backdoorLinger
+        b.bdp = this.time >= (b.extra.bdOff ?? 0)
+      }
+    }
+  }
+
+  /** Gold a dead hero must pay to respawn at once. */
+  buybackCost(h: Unit) {
+    return Math.round(RULES.buybackBase + this.netWorth(h) / RULES.buybackDiv)
+  }
+
+  /** Pay to respawn immediately at the fountain. Returns an error text, or null on success. */
+  buyback(h: Unit): string | null {
+    const hs = h.h
+    if (!hs || !h.dead) return 'You are not dead'
+    if (hs.aegisAt) return 'The Aegis is reviving you'
+    if (this.winner !== null) return 'The match is over'
+    if (this.time < hs.buybackReadyAt) return `Buyback is on cooldown (${Math.ceil(hs.buybackReadyAt - this.time)}s)`
+    const cost = this.buybackCost(h)
+    if (hs.gold < cost) return `Not enough gold (${cost})`
+    hs.gold -= cost
+    hs.buybackReadyAt = this.time + RULES.buybackCd
+    hs.respawnAt = this.time
+    this.pushFeed(`${this.label(h)} bought back`, h.team)
+    this.emit('buyback', h.x, h.y, { all: true })
+    return null
   }
 
   /**
@@ -1030,7 +1108,26 @@ export class World implements WorldView {
     else if (t.kind === 'tower') this.towerDied(t, src)
     else if (t.kind === 'ancient') this.ancientDied(t)
     if (t.kind === 'tower' || t.kind === 'ancient') this.syncNav() // standing buildings are obstacles for pathfinding
-    else if (t.kind === 'hero') this.heroDied(t, src, o)
+    else if (t.kind === 'hero' && !this.aegisSave(t)) this.heroDied(t, src, o)
+  }
+
+  /**
+   * A hero holding the Aegis comes back after a few seconds where they fell: no death, no kill reward, no gold loss.
+   * Returns true when the Aegis was used.
+   */
+  private aegisSave(t: Unit) {
+    const hs = t.h!
+    const slot = hs.items.findIndex((i) => i?.def.id === 'aegis')
+    if (slot < 0) return false
+    hs.items[slot] = null
+    hs.aegisAt = { x: t.x, y: t.y }
+    hs.respawnAt = this.time + RULES.aegisRevive
+    t.damagers.clear()
+    this.recalc(t)
+    this.text(t.x, t.y - 100, 'Aegis!', RUNE_INFO.aegis.color, 20)
+    this.pushFeed(`${this.label(t)} was saved by the Aegis`, t.team)
+    this.emit('rune', t.x, t.y, { all: true })
+    return true
   }
 
   /** A dying unit drops its channel, cast, swing, forced movement and orders. */
@@ -1049,6 +1146,7 @@ export class World implements WorldView {
   private creepDied(t: Unit, src: Unit | null) {
     const enemyTeam = (1 - t.team) as Team
     if (isNeutral(t.team)) {
+      if (t.sub === 'roshan') return this.roshanDied(t, src)
       // jungle monster
       if (src && !isNeutral(src.team)) {
         if (src.kind === 'hero') {
@@ -1096,6 +1194,13 @@ export class World implements WorldView {
     hs.deaths++
     this.emit('death', t.x, t.y, { team: t.team })
     hs.respawnAt = this.time + 6 + hs.level * 2.8
+    // dying costs a share of the gold on hand (items are kept); taken before any kill reward is worked out
+    const lost = Math.floor(hs.gold * RULES.deathGoldLoss)
+    hs.gold -= lost
+    hs.goldLost = lost
+    if (lost > 0) {
+      if (hs.isHuman) this.text(t.x, t.y - 60, `-${lost}`, '#ff6a5a', 18, { hero: t.id, only: true })
+    }
     // who gets the credit: the enemy hero that landed the blow; if creeps or a tower did, the last hero that damaged the
     // victim in the last 20s (earlier damagers are assists); nobody recent = every enemy hero shares the bounty
     const recent: Unit[] = []
@@ -1477,7 +1582,7 @@ export class World implements WorldView {
   buyItem(h: Unit, id: string): string | null {
     const def = ITEM_BY_ID[id]
     const hs = h.h!
-    if (!def) return 'Unknown item'
+    if (!def || def.noShop) return 'Unknown item'
     if (hs.gold < def.cost) return 'Not enough gold'
     if (id === 'tp') {
       // scrolls are delivered instantly into the separate teleport stash
@@ -1504,7 +1609,7 @@ export class World implements WorldView {
   sellItem(h: Unit, slot: number) {
     const hs = h.h!
     const it = hs.items[slot]
-    if (!it || !this.nearShop(h)) return false
+    if (!it || it.def.noShop || !this.nearShop(h)) return false
     hs.gold += Math.floor(it.def.cost * 0.5) * Math.max(1, it.charges)
     hs.items[slot] = null
     this.recalc(h)
@@ -1598,7 +1703,7 @@ export class World implements WorldView {
 
   /* ---------------------------------------------------------- creeps */
 
-  spawnCreep(team: Team, sub: 'melee' | 'ranged', lane: Lane, arc: number) {
+  spawnCreep(team: Team, sub: 'melee' | 'ranged' | 'siege', lane: Lane, arc: number) {
     // Dota 2 lane creep stats (wiki): permanent upgrades every 7:30 to health, damage and bounty
     const up = Math.min(30, Math.floor(this.time / 450))
     // mega creeps: once the enemy has lost all three tier-3 towers
@@ -1607,6 +1712,7 @@ export class World implements WorldView {
       this.megaTold[team] = true
       this.announceAbout('mega', team, 'Barracks destroyed', team, true)
     }
+    if (sub === 'siege') return this.spawnSiege(team, lane, arc, up)
     const melee = sub === 'melee'
     const hp = mega ? (melee ? 1270 : 1015) : melee ? 550 + 12 * up : 300 + 12 * up
     const dmg = mega ? (melee ? 100 : 133.5) : melee ? 21 + up : 23.5 + 2 * up
@@ -1628,10 +1734,79 @@ export class World implements WorldView {
     return u
   }
 
+  /* ----------------------------------------------------------- Roshan */
+
+  /** The boss in the pit at the river's source; null until the first spawn and while a respawn is pending. */
+  roshan: Unit | null = null
+  /** When Roshan returns after a kill (or first appears). */
+  roshanAt = 0.5
+
+  private spawnRoshan() {
+    // stronger the later he appears (tune): health, damage and armor grow with the game clock
+    const min = this.time / 60
+    const u = new Unit(NEUTRAL, 'creep', 'roshan', 'Roshan', 85, {
+      maxHp: 5500 + 115 * min, dmg: 80 + 1.8 * min, armor: 15 + 0.275 * min, ms: 350, range: 150,
+      bat: 2.3, ap: 0.56, projSpeed: 0, hpRegen: 0,
+    })
+    u.st.magicRes = 0.5
+    u.xp = 600
+    u.x = ROSHAN_PIT.x
+    u.y = ROSHAN_PIT.y
+    u.facing = Math.PI / 4
+    u.extra.home = { x: u.x, y: u.y }
+    u.nextThink = this.time + 0.3
+    this.add(u)
+    this.roshan = u
+    return u
+  }
+
+  /** Roshan died: the killing team is paid and the Aegis drops where he fell. */
+  private roshanDied(t: Unit, src: Unit | null) {
+    this.roshanAt = this.time + RULES.roshMin + Math.random() * (RULES.roshMax - RULES.roshMin)
+    if (!src || isNeutral(src.team)) return
+    const team = src.team
+    for (const h of this.heroes) if (h.team === team) this.gold(h, RULES.roshGold)
+    this.giveXp(team, t.x, t.y, t.xp)
+    this.spawnPickup('aegis', t.x, t.y, team)
+    this.announceAbout('roshan_down', team, 'The Aegis of the Immortal has dropped', team, true)
+    this.pushFeed(`${TEAM_NAME[team]} killed Roshan`, team)
+  }
+
+  /** Siege creep (every RULES.siegeEvery-th wave): slow, tough, long range, far stronger against buildings than units. */
+  private spawnSiege(team: Team, lane: Lane, arc: number, up: number) {
+    const u = new Unit(team, 'creep', 'siege', 'Siege Creep', 38, {
+      maxHp: 935 + 22 * up, dmg: 40 + 3 * up, armor: 0, ms: 325, range: 690,
+      bat: 2.7, ap: 0.7, projSpeed: 900, hpRegen: 0,
+    })
+    u.st.magicRes = RULES.siegeMagicRes
+    u.bounty = 66 + 6 * up
+    u.xp = 88
+    u.lane = lane
+    const p = PATHS[team][lane].at(arc)
+    u.x = p.x
+    u.y = p.y
+    u.pathIdx = 1
+    u.facing = team === 0 ? -Math.PI / 4 : (3 * Math.PI) / 4
+    u.nextThink = this.time + Math.random() * 0.2
+    this.add(u)
+    return u
+  }
+
   /* ----------------------------------------------------------- jungle */
 
   camps: { x: number; y: number; tier: number; members: Unit[] }[] = CAMPS.map((c) => ({ x: c.x, y: c.y, tier: c.tier, members: [] }))
   nextCamp = 0.5
+
+  /** True when a hero, lane creep, summon, ward or neutral stands inside the camp's spawn area. */
+  private campBlocked(c: { x: number; y: number; tier: number }) {
+    const r2 = RULES.campArea[c.tier] ** 2
+    const inside = (x: number, y: number) => (x - c.x) ** 2 + (y - c.y) ** 2 <= r2
+    for (const u of this.units) {
+      if (u.dead || u.isBuilding || u.kind === 'courier') continue
+      if (inside(u.x, u.y)) return true
+    }
+    return this.wards.some((wd) => inside(wd.x, wd.y))
+  }
 
   private spawnCamps() {
     // Dota 2 neutral stats (wiki): no time scaling. [name, sub, radius, hp, dmg, armor, range, bat, ap, ms, bounty, xp]
@@ -1659,9 +1834,11 @@ export class World implements WorldView {
       ],
     ]
     for (const c of this.camps) {
-      if (c.members.some((m) => !m.dead)) continue
-      c.members = []
       const pack = packs[c.tier]
+      c.members = c.members.filter((m) => !m.dead)
+      // a camp spawns only when nothing stands in its area (neutrals that stayed home block it); neutrals pulled out of the
+      // area leave room for a second pack, so the camp stacks, up to a limit
+      if (this.campBlocked(c) || c.members.length >= pack.length * RULES.maxStacks) continue
       pack.forEach((m, i) => {
         const [name, sub, r, hp, dmg, armor, range, bat, ap, ms, bounty, xp] = m
         const u = new Unit(NEUTRAL, 'creep', sub, name, r, {
@@ -1694,6 +1871,7 @@ export class World implements WorldView {
         for (let i = 0; i < melee + ranged; i++) {
           this.spawnCreep(team, i < melee ? 'melee' : 'ranged', lane, 650 - i * 110)
         }
+        if (this.waveNo % RULES.siegeEvery === 0) this.spawnCreep(team, 'siege', lane, 650 - (melee + ranged) * 110)
       }
     }
   }
@@ -1715,6 +1893,7 @@ export class World implements WorldView {
       this.nextCamp += 60
       this.spawnCamps()
     }
+    if ((!this.roshan || this.roshan.dead) && this.time >= this.roshanAt) this.spawnRoshan()
     if (this.time >= this.nextWave) {
       this.spawnWave()
       this.nextWave += 30
@@ -1738,6 +1917,11 @@ export class World implements WorldView {
       }
     }
     this.stepRunes()
+    this.bdTimer -= dt
+    if (this.bdTimer <= 0) {
+      this.bdTimer = 0.25
+      this.stepBackdoor()
+    }
     // per-unit updates
     for (const u of this.units) {
       if (u.dead) {
@@ -1807,6 +1991,12 @@ export class World implements WorldView {
 
   /* -------------------------------------------------------------- runes */
 
+  /** A dropped pickup on the ground (the Aegis): reserved for `team` at first, gone after RULES.aegisGround seconds. */
+  private spawnPickup(kind: RuneKind, x: number, y: number, team: Team) {
+    this.runes.push({ id: this.runeId++, kind, x, y, at: this.time, team, teamUntil: this.time + RULES.aegisTeamOnly, expires: this.time + RULES.aegisGround })
+    this.vfx('ring', { x, y, r0: 20, r1: 260, dur: 1, color: RUNE_INFO[kind].color })
+  }
+
   private spawnRune(kind: RuneKind, x: number, y: number) {
     this.runes = this.runes.filter((r) => Math.hypot(r.x - x, r.y - y) > 60)
     this.runes.push({ id: this.runeId++, kind, x, y, at: this.time })
@@ -1832,10 +2022,14 @@ export class World implements WorldView {
     }
     if (!this.runes.length) return
     for (const r of this.runes) {
+      if (r.expires !== undefined && this.time >= r.expires) {
+        r.at = -1
+        continue
+      }
       let taker: Unit | null = null
       let bd = 140
       for (const h of this.heroes) {
-        if (h.dead) continue
+        if (h.dead || !this.canTakeRune(h, r)) continue
         const d = Math.hypot(h.x - r.x, h.y - r.y)
         if (d < bd) {
           bd = d
@@ -1850,8 +2044,28 @@ export class World implements WorldView {
     this.runes = this.runes.filter((r) => r.at >= 0)
   }
 
+  /** The Aegis is for the team that killed Roshan at first, and needs a free slot (or an Aegis to refresh). */
+  private canTakeRune(h: Unit, r: Rune) {
+    if (r.kind !== 'aegis') return true
+    if (r.team !== undefined && h.team !== r.team && this.time < (r.teamUntil ?? 0)) return false
+    return h.h!.items.some((i) => !i || i.def.id === 'aegis')
+  }
+
   private pickRune(h: Unit, r: Rune) {
     const info = RUNE_INFO[r.kind]
+    if (r.kind === 'aegis') {
+      const held = h.h!.items.find((i) => i?.def.id === 'aegis')
+      if (held) held.expiresAt = this.time + RULES.aegisLife
+      else {
+        this.giveItem(h, ITEM_BY_ID.aegis)
+        const it = h.h!.items.find((i) => i?.def.id === 'aegis')
+        if (it) it.expiresAt = this.time + RULES.aegisLife
+      }
+      this.text(h.x, h.y - 120, 'Aegis of the Immortal!', info.color, 18)
+      this.pushFeed(`${this.label(h)} picked up the Aegis`, h.team)
+      this.emit('rune', h.x, h.y, { all: true })
+      return
+    }
     if (r.kind === 'bounty') {
       const min = this.time / 60
       const gold = Math.round(55 + min * 4)
@@ -1902,6 +2116,8 @@ export class World implements WorldView {
   private stepRegen(u: Unit, dt: number) {
     const s = u.st
     if (u.kind === 'fountain') return
+    // a protected building heals back what the enemy takes
+    if (u.bdp && u.hp < s.maxHp && this.time - u.lastDamagedByEnemy < 15) u.hp = Math.min(s.maxHp, u.hp + RULES.backdoorRegen * dt)
     if (u.hp < s.maxHp) u.hp = Math.min(s.maxHp, u.hp + (s.hpRegen + this.buffRegen(u, 'regenHp')) * dt)
     if (s.maxMana > 0 && u.mana < s.maxMana) u.mana = Math.min(s.maxMana, u.mana + (s.manaRegen + this.buffRegen(u, 'regenMana')) * dt)
     // fountain healing
@@ -1924,9 +2140,18 @@ export class World implements WorldView {
       u.buffs = []
       u.hp = u.st.maxHp
       u.mana = u.st.maxMana
-      const f = FOUNTAIN_POS[u.team]
-      u.x = f.x + (u.team === 0 ? 240 : -240)
-      u.y = f.y + (u.team === 0 ? -240 : 240)
+      if (hs.aegisAt) {
+        // revived by the Aegis: right where the hero fell
+        u.x = hs.aegisAt.x
+        u.y = hs.aegisAt.y
+        hs.aegisAt = null
+        this.vfx('ring', { x: u.x, y: u.y, r0: 20, r1: 260, dur: 0.9, color: RUNE_INFO.aegis.color })
+        this.emit('rune', u.x, u.y, { all: true })
+      } else {
+        const f = FOUNTAIN_POS[u.team]
+        u.x = f.x + (u.team === 0 ? 240 : -240)
+        u.y = f.y + (u.team === 0 ? -240 : 240)
+      }
       u.order = { t: 'idle' }
       u.forced = null
       u.revealUntil = 0
@@ -1937,6 +2162,14 @@ export class World implements WorldView {
 
   private stepHeroAbilities(u: Unit, dt: number) {
     const hs = u.h!
+    for (let i = 0; i < hs.items.length; i++) {
+      const it = hs.items[i]
+      if (it?.expiresAt && this.time >= it.expiresAt) {
+        hs.items[i] = null
+        this.text(u.x, u.y - 100, `${it.def.name} expired`, '#cfd8e0', 15)
+        this.recalc(u)
+      }
+    }
     const cdr = u.buffs.reduce((n, b) => n + (b.cdr || 0), 0)
     if (cdr) for (const a of this.allAbilities(u)) if (a.cdUntil > this.time) a.cdUntil -= dt * cdr
     if (hs.stolen && this.time >= hs.stolen.expires) hs.stolen = null
@@ -2264,6 +2497,7 @@ export class World implements WorldView {
       for (const a of u.h.abilities) if (a.level > 0 && a.def.onAttackHit) dmg += a.def.onAttackHit(this, u, t, a.level, a)
     }
     if (u.mega && t.isBuilding) dmg *= 2.2
+    if (u.sub === 'siege') dmg *= t.isBuilding ? RULES.siegeVsBuilding : RULES.siegeVsUnit
     if (u.kind === 'fountain') {
       // the fountain deals exactly 200 pure damage per hit (armor and evasion cannot save you)
       this.damage(u, t, 200, 'pure', { attack: true })
@@ -2347,7 +2581,8 @@ export class World implements WorldView {
       const dy = c.y - u.y
       const dd = Math.hypot(dx, dy) || 1
       const k = Math.min(1, reach / dd)
-      this.grantVision(u.team, u.x + dx * k, u.y + dy * k, 500, 3)
+      // an area spell lights up the ground it lands on, but only as high as its caster can see
+      this.grantVision(u.team, u.x + dx * k, u.y + dy * k, 500, 3, undefined, groundLevel(u.x, u.y))
     } else if (d.behavior === 'unit' && c.target && c.target.team !== u.team && !c.target.isBuilding) {
       this.grantVision(u.team, c.target.x, c.target.y, 380, 2, c.target)
     }

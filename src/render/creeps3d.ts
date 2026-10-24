@@ -16,7 +16,9 @@ export function buildCreep(sub: string, team: number, r: number): Model {
   g.add(body)
   const weapon = new THREE.Group()
   const rad = team === 0
-  if (sub === 'melee') {
+  if (sub === 'siege') {
+    buildSiege(b, body, weapon, r, rad)
+  } else if (sub === 'melee') {
     if (rad) buildRadiantMelee(b, body, weapon, r)
     else buildDireMelee(b, body, weapon, r)
   } else {
@@ -24,7 +26,7 @@ export function buildCreep(sub: string, team: number, r: number): Model {
     else buildDireRanged(b, body, weapon, r)
   }
   body.add(weapon)
-  return { group: g, weapon, body, height: r * (sub === 'melee' && !rad ? 3.0 : 2.8), mats: b.mats }
+  return { group: g, weapon, body, height: r * (sub === 'siege' ? 2.4 : sub === 'melee' && !rad ? 3.0 : 2.8), mats: b.mats }
 }
 
 function buildRadiantMelee(b: Builder, body: THREE.Group, weapon: THREE.Group, r: number) {
@@ -170,4 +172,30 @@ function buildDireRanged(b: Builder, body: THREE.Group, weapon: THREE.Group, r: 
   b.mesh(box(r * 0.03, r * 2.0, r * 0.03), ember, -r * 0.1, r * 0.1, 0, weapon) // glowing string
   const orb = b.mesh(sph(r * 0.18, 6, 5), ember, r * 0.1, r * 0.1, 0, weapon)
   orb.castShadow = false
+}
+
+/** Siege creep: a wheeled catapult in the team's colours. The throwing arm is the weapon and swings back when it fires. */
+function buildSiege(b: Builder, body: THREE.Group, weapon: THREE.Group, r: number, rad: boolean) {
+  const wood = b.m(rad ? '#7a6a48' : '#4a2c22')
+  const plank = b.m(rad ? '#a8946a' : '#6a3a2c')
+  const trim = glow(b, rad ? '#7aff8a' : '#ff6a3a', rad ? '#3aff60' : '#ff3010', 1.0)
+  const iron = b.m('#4a4a54', { metalness: 0.6, roughness: 0.45 })
+  // chassis and four wheels
+  b.mesh(box(r * 2.2, r * 0.3, r * 1.2), wood, 0, r * 0.75, 0, body)
+  b.mesh(box(r * 0.2, r * 0.25, r * 1.5), plank, r * 0.7, r * 0.55, 0, body)
+  b.mesh(box(r * 0.2, r * 0.25, r * 1.5), plank, -r * 0.7, r * 0.55, 0, body)
+  for (const sx of [-0.75, 0.75]) {
+    for (const sz of [-0.75, 0.75]) {
+      const wheel = b.mesh(cyl(r * 0.42, r * 0.42, r * 0.16, 10), iron, sx * r, r * 0.42, sz * r, body)
+      wheel.rotation.x = Math.PI / 2
+    }
+  }
+  // upright frame and glowing banner stripe
+  for (const sz of [-0.5, 0.5]) b.mesh(box(r * 0.18, r * 1.3, r * 0.18), wood, r * 0.1, r * 1.35, sz * r, body)
+  b.mesh(box(r * 0.2, r * 0.14, r * 1.2), trim, r * 0.1, r * 1.95, 0, body)
+  // throwing arm with a bucket (pivot at the top of the frame)
+  weapon.position.set(r * 0.1, r * 1.6, 0)
+  b.mesh(box(r * 0.2, r * 1.9, r * 0.2), plank, -r * 0.2, r * 0.55, 0, weapon).rotation.z = 0.35
+  b.mesh(cyl(r * 0.36, r * 0.24, r * 0.3, 8), iron, -r * 0.55, r * 1.35, 0, weapon)
+  b.mesh(sph(r * 0.24, 6, 5), trim, -r * 0.55, r * 1.55, 0, weapon).castShadow = false
 }

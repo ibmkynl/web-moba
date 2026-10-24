@@ -5,9 +5,10 @@
 import { World } from '../src/sim/world'
 import { ITEM_BY_ID } from '../src/sim/items'
 import { recommendItem } from '../src/sim/recommend'
-import { freePoint } from '../src/sim/nav'
+import { canReach, freePoint } from '../src/sim/nav'
+import { FORDS, RIVER_PATH, heightAt, solidsNear } from '../src/sim/obstacles'
 import { HEROES } from '../src/sim/heroes'
-import { isNeutral } from '../src/sim/constants'
+import { BOUNTY_RUNES, CAMPS, FOUNTAIN_POS, LANES, MAP, PATHS, POWER_RUNES, Pt, RULES, ROSHAN_PIT, groundLevel, isNeutral } from '../src/sim/constants'
 import { Frame, Replica, SnapshotDecoder, SnapshotEncoder, snapshotFor } from '../src/net/snapshot'
 
 const STEP = 1 / 60
@@ -359,6 +360,286 @@ const tests: Record<string, () => void> = {
     ok('cast Time Lapse', w.orderCast(p, lapse, undefined, p.x, p.y) === null); run(w, 0.05)
     ok('Time Lapse returns Weaver to his old spot', Math.hypot(p.x - 3000, p.y - 3000) < 40, `${p.x.toFixed(0)},${p.y.toFixed(0)}`)
     ok('Time Lapse restores health', p.hp > p.st.maxHp * 0.9, `${(p.hp / p.st.maxHp * 100).toFixed(0)}%`)
+  },
+  goldloss() {
+    const w = fresh(); clearCreeps(w); freeze(w); const p = place(w, 3000, 3000)
+    p.h!.gold = 1000; p.h!.earned = 5000; w.buyItem(p, 'boots'); const items0 = p.h!.items.filter(Boolean).length; p.h!.gold = 1000
+    w.kill(p, null)
+    ok('dying loses 40% of the gold on hand', p.h!.gold === 600, `gold ${p.h!.gold}`)
+    ok('items are kept and earned (GPM) is unchanged', p.h!.items.filter(Boolean).length === items0 && p.h!.earned === 5000)
+    const w2 = fresh(); clearCreeps(w2); freeze(w2); const q = place(w2, 3000, 3000); q.h!.gold = 0
+    w2.kill(q, null)
+    ok('no gold stays at 0 and the shown loss is 0', q.h!.gold === 0 && q.h!.goldLost === 0)
+    q.h!.respawnAt = w2.time; w2.tick(STEP); q.h!.gold = 500; w2.kill(q, null); w2.tick(STEP); q.h!.respawnAt = w2.time; w2.tick(STEP); w2.kill(q, null)
+    ok('goldLost is refreshed on every death', q.h!.goldLost === 120, `${q.h!.goldLost}`)
+    const w3 = fresh(); clearCreeps(w3); freeze(w3); const r = place(w3, 3000, 3000); r.h!.gold = 1000
+    const tw = w3.towers.find((t) => t.team === 1)!; w3.kill(r, tw)
+    ok('a tower kill costs 40% too', r.h!.gold === 600)
+    r.h!.respawnAt = w3.time; w3.tick(STEP); ok('hero respawns', !r.dead)
+    w3.kill(r, null)
+    ok('losses compound (600 -> 360)', r.h!.gold === 360, `gold ${r.h!.gold}`)
+  },
+  buyback() {
+    const w = fresh(); clearCreeps(w); freeze(w); const p = place(w, 3000, 3000); const hs = p.h!
+    ok('buyback refused while alive', w.buyback(p) !== null)
+    hs.gold = 5000; w.kill(p, null); const afterLoss = hs.gold
+    const cost = w.buybackCost(p)
+    ok('cost = 100 + net worth / 13', cost === Math.round(100 + w.netWorth(p) / 13), `cost ${cost}`)
+    ok('buyback works while dead', w.buyback(p) === null && hs.gold === afterLoss - cost, `gold ${hs.gold}`)
+    w.tick(STEP)
+    ok('hero is alive at the fountain at once', !p.dead && Math.hypot(p.x - 470, p.y - 9100) < 600, `${p.x.toFixed(0)},${p.y.toFixed(0)}`)
+    ok('hp and mana are full', p.hp === p.st.maxHp)
+    w.kill(p, null); hs.gold = 9999
+    ok('second buyback blocked by the 8 minute cooldown', w.buyback(p) !== null && p.dead)
+    run(w, 481)
+    ok('cooldown ends after 480 s', hs.buybackReadyAt <= w.time)
+    const w2 = fresh(); clearCreeps(w2); freeze(w2); const q = place(w2, 3000, 3000); w2.kill(q, null); q.h!.gold = 0
+    ok('too poor to buy back', w2.buyback(q) !== null && q.dead)
+    // snapshot round trip keeps the cooldown and the lost gold
+    const w3 = fresh(); clearCreeps(w3); freeze(w3); const t = place(w3, 3000, 3000); t.h!.gold = 4000; w3.kill(t, null); w3.buyback(t)
+    const enc = new SnapshotEncoder(), dec = new SnapshotDecoder(), rep = new Replica()
+    const d = dec.decode(JSON.parse(JSON.stringify(enc.encode(snapshotFor(w3, 0, t.id, 1, { sfx: [], ann: [], txt: [], vfx: [] } as any, new Frame())))))
+    if (d) rep.apply(d, 1000)
+    const rh = rep.world.heroes.find((h) => h.id === t.id)!
+    ok('snapshot carries buyback cooldown and lost gold', Math.abs(rh.h!.buybackReadyAt - t.h!.buybackReadyAt) < 0.01 && rh.h!.goldLost === t.h!.goldLost && rh.h!.goldLost > 0)
+  },
+  glyph() {
+    const w = fresh(); clearCreeps(w); freeze(w)
+    const t = w.towers.find((x) => x.team === 0 && x.tier === 0)!; const e = w.towers.find((x) => x.team === 1 && x.tier === 0)!
+    ok('glyph is locked before 3:00', w.useGlyph(0) !== null)
+    w.time = 181
+    const hp0 = t.hp
+    ok('glyph can be used from 3:00', w.useGlyph(0) === null)
+    ok('buildings take no damage during the glyph', w.damage(w.heroes.find((h) => h.team === 1)!, t, 500, 'pure') === 0 && t.hp === hp0)
+    ok('only the owner team is protected', w.damage(w.player, e, 100, 'pure') > 0)
+    ok('glyph has a shared cooldown', w.useGlyph(0) !== null)
+    run(w, 7.2)
+    ok('protection ends after 7 s', w.damage(w.heroes.find((h) => h.team === 1)!, t, 100, 'pure') > 0)
+    ok('the other team can still use its own glyph', w.useGlyph(1) === null)
+    w.time = 181 + 301
+    ok('cooldown is 300 s', w.useGlyph(0) === null)
+    const enc = new SnapshotEncoder(), dec = new SnapshotDecoder(), rep = new Replica()
+    const d = dec.decode(JSON.parse(JSON.stringify(enc.encode(snapshotFor(w, 0, w.player.id, 1, { sfx: [], ann: [], txt: [], vfx: [] } as any, new Frame())))))
+    if (d) rep.apply(d, 1000)
+    ok('snapshot carries the glyph cooldown', rep.world.glyphReadyAt[0] === w.glyphReadyAt[0] && rep.world.glyphReadyAt[1] === w.glyphReadyAt[1])
+  },
+  backdoor() {
+    const w = fresh(); clearCreeps(w); freeze(w)
+    const attacker = w.heroes.find((h) => h.team === 0)!
+    const t2 = w.towers.find((x) => x.team === 1 && x.tier === 1 && x.lane === 'mid')!; t2.locked = false
+    const t1 = w.towers.find((x) => x.team === 1 && x.tier === 0 && x.lane === 'mid')!; t1.locked = false
+    run(w, 0.3)
+    ok('a tier 2 tower with no creeps nearby is protected', t2.bdp)
+    ok('tier 1 towers are never protected', !t1.bdp)
+    const hit = (b: typeof t2) => { const h0 = b.hp; w.damage(attacker, b, 200, 'pure'); return h0 - b.hp }
+    ok('protected building takes 50% damage', hit(t2) === 100)
+    ok('unprotected building takes full damage', hit(t1) === 200)
+    t2.hp = t2.st.maxHp - 1000; t2.lastDamagedByEnemy = w.time; const h0 = t2.hp; run(w, 1)
+    ok('protected building regenerates ~180 HP/s', t2.hp - h0 > 150 && t2.hp - h0 < 215, `+${(t2.hp - h0).toFixed(0)}`)
+    const c = w.spawnCreep(0, 'melee', 'mid', 2000); c.x = t2.x + 300; c.y = t2.y; c.noAuto = true; c.nextThink = 1e9
+    run(w, 0.3)
+    ok('an enemy lane creep next to it switches protection off', !t2.bdp)
+    ok('full damage while a creep is close', hit(t2) === 200)
+    c.dead = true; run(w, 1)
+    ok('protection stays off for the linger time', !t2.bdp)
+    run(w, 3)
+    ok('and returns after it', t2.bdp)
+    const anc = w.ancientOf(1)!; const t3 = w.towers.find((x) => x.team === 1 && x.tier === 2)!
+    ok('tier 3 and the ancient are protected too', t3.bdp && anc.bdp)
+    const c2 = w.spawnCreep(0, 'melee', 'mid', 2000); c2.x = anc.x - 3000; c2.y = anc.y; c2.noAuto = true; c2.nextThink = 1e9
+    run(w, 0.3)
+    ok('a creep within 4000 of the ancient removes the whole base protection', !t3.bdp && !anc.bdp)
+    const s = w.heroes.find((h) => h.team === 0)!; const summon = Object.assign(Object.create(s), { kind: 'summon', team: 0 })
+    c2.dead = true; run(w, 5)
+    const h1 = t2.hp; w.damage(summon, t2, 200, 'pure'); ok('summons deal 25%', Math.abs(h1 - t2.hp - 50) < 1e-6, `${h1 - t2.hp}`)
+    // the flag reaches the client so the info panel can show it
+    t2.bdp = true
+    const enc = new SnapshotEncoder(), dec = new SnapshotDecoder(), rep = new Replica()
+    const d = dec.decode(JSON.parse(JSON.stringify(enc.encode(snapshotFor(w, 0, w.player.id, 1, { sfx: [], ann: [], txt: [], vfx: [] } as any, new Frame())))))
+    if (d) rep.apply(d, 1000)
+    ok('snapshot carries the backdoor flag', rep.world.units.find((u) => u.id === t2.id)?.bdp === true)
+  },
+  siege() {
+    const w = fresh(); freeze(w)
+    const sieges = () => w.units.filter((u) => u.sub === 'siege' && !u.dead)
+    while (w.waveNo < 9) run(w, 1)
+    ok('no siege creeps before wave 10', sieges().length === 0)
+    while (w.waveNo < 10) run(w, 1)
+    ok('wave 10 brings one siege creep per lane and team', sieges().length === 6 && [0, 1].every((t) => ['top', 'mid', 'bot'].every((l) => sieges().filter((s) => s.team === t && s.lane === l).length === 1)), `${sieges().length}`)
+    while (w.waveNo < 11) run(w, 1)
+    ok('wave 11 has none', sieges().length === 6)
+    const s = sieges()[0]
+    ok('stats: 935 HP, range 690, 0 armor, 80% magic resistance', s.st.maxHp === 935 && s.st.range === 690 && s.st.armor === 0 && s.st.magicRes === 0.8, `${s.st.maxHp} ${s.st.range} ${s.st.magicRes}`)
+    const w2 = fresh(); clearCreeps(w2); freeze(w2); const p = place(w2, 3000, 3000)
+    const m = w2.spawnCreep(0, 'siege', 'mid', 1500); m.hp = m.st.maxHp
+    const h0 = m.hp; w2.damage(p, m, 100, 'magical'); ok('magic damage is reduced by 80%', Math.abs(h0 - m.hp - 20) < 1e-6, `${h0 - m.hp}`)
+    const tw = w2.towers.find((t) => t.team === 1 && t.tier === 0 && t.lane === 'mid')!; tw.locked = false; tw.bdp = false; tw.base.armor = 0; tw.st.armor = 0
+    const sg = w2.spawnCreep(0, 'siege', 'mid', 1500); sg.x = tw.x - 600; sg.y = tw.y; sg.noAuto = true; sg.nextThink = 0
+    const foe = w2.spawnCreep(1, 'melee', 'mid', 1500); foe.x = sg.x + 100; foe.y = sg.y; foe.noAuto = true; foe.nextThink = 1e9; foe.base.dmg = 0
+    run(w2, 0.5)
+    ok('siege creep picks the building over a nearby creep', sg.aiTarget === tw, sg.aiTarget ? `${sg.aiTarget.kind}` : 'none')
+    const dmgB = (() => { const a = tw.hp; w2.applyAttack(sg, tw); return a - tw.hp })()
+    const dmgU = (() => { foe.base.armor = 0; foe.st.armor = 0; const a = foe.hp; w2.applyAttack(sg, foe); return a - foe.hp })()
+    ok('siege deals 3x to a building and 0.5x to a unit', Math.abs(dmgB / dmgU - 6) < 0.8 && dmgB > 100, `building ${dmgB.toFixed(0)} unit ${dmgU.toFixed(0)}`)
+    const es = w2.spawnCreep(1, 'siege', 'mid', 1500); const g0 = p.h!.gold; w2.kill(es, p); ok('killing a siege creep pays 66 gold', p.h!.gold - g0 === 66, `${p.h!.gold - g0}`)
+  },
+  highground() {
+    const w = fresh(); clearCreeps(w); freeze(w); const p = w.player
+    // Dire base high ground: well inside the walls; low ground: just outside the ramp
+    const hi = { x: 6850, y: 2000 }, lo = { x: 6300, y: 2000 }
+    ok('groundLevel: base interior is high, the lane outside is low', groundLevel(hi.x, hi.y) === 1 && groundLevel(lo.x, lo.y) === 0 && groundLevel(900, 8700) === 1 && groundLevel(4800, 4800) === 0)
+    ok('groundLevel: the ramp mouth is low ground', groundLevel(8700, 800) === 0 || groundLevel(8700 - 1, 2800) === 0)
+    const enemy = w.heroes.find((h) => h.team === 1)!; enemy.noAuto = true; enemy.dead = false; enemy.hp = enemy.st.maxHp
+    enemy.x = hi.x; enemy.y = hi.y
+    p.x = lo.x; p.y = lo.y; w.computeVision()
+    ok('a hero on low ground cannot see a unit on the high ground in range', Math.hypot(p.x - enemy.x, p.y - enemy.y) < 1000 && !w.isVisible(0, enemy), `dist ${Math.hypot(p.x - enemy.x, p.y - enemy.y).toFixed(0)}`)
+    ok('...and cannot target it', !w.canHit(p, enemy))
+    // a ward on the high ground sees it
+    w.wards.push({ id: 99, x: hi.x + 200, y: hi.y - 200, team: 0, expires: w.time + 100 }); w.computeVision()
+    ok('a ward on the high ground reveals it', w.isVisible(0, enemy))
+    w.wards = []; w.computeVision()
+    ok('without the ward it is hidden again', !w.isVisible(0, enemy))
+    // flying courier sees the high ground
+    const c = w.courierFor(p)!; c.x = lo.x + 150; c.y = lo.y; w.computeVision()
+    ok('a courier flies over the cliffs and sees the high ground', w.isVisible(0, enemy), `vision ${w.visionOf(c)}`)
+    c.x = 470; c.y = 9100
+    // area spell from below does not light the plateau; a hero on the high ground does
+    w.grantVision(0, hi.x, hi.y, 600, 3, undefined, 0); w.computeVision()
+    ok('an area vision spot cast from low ground does not reveal the plateau', !w.isVisible(0, enemy))
+    p.x = hi.x + 300; p.y = hi.y - 100; w.computeVision()
+    ok('walking up (a hero on the high ground) reveals it', w.isVisible(0, enemy))
+    // the enemy tower on its own high ground sees the lane below
+    const low = w.heroes.find((h) => h.team === 0 && h !== p)!; low.x = lo.x; low.y = lo.y; low.dead = false; low.hp = low.st.maxHp; p.x = 470; p.y = 9100; w.computeVision()
+    ok('units on low ground are seen from the high ground', w.isVisible(1, low) || Math.hypot(low.x - 8500, low.y - 1100) > 1800, '')
+    // the Dire side sees a unit on its own ground level normally
+    const mid = { x: 4800, y: 4800 }; enemy.x = mid.x; enemy.y = mid.y; p.x = mid.x - 300; p.y = mid.y; w.computeVision()
+    ok('same-level units see each other as before', w.isVisible(0, enemy))
+  },
+  camps() {
+    const w = fresh(); clearCreeps(w); freeze(w); const p = w.player
+    const packSize = [5, 3, 3]
+    run(w, 1)
+    const camp = w.camps.find((c) => c.tier === 1)!, size = packSize[1]
+    const alive = () => camp.members.filter((m) => !m.dead)
+    ok('camps spawn at the start', alive().length === size, `${alive().length}`)
+    // a full camp does not respawn: its monsters stand in the spawn area
+    run(w, 60)
+    ok('no second pack while the first stands in the camp', alive().length === size, `${alive().length}`)
+    // pulled out of the area before the minute mark: the camp stacks
+    for (const m of alive()) { m.x = camp.x + 1100; m.y = camp.y; m.nextThink = 1e9; m.order = { t: 'idle' } }
+    run(w, 60 - (w.time % 60) + 0.7)
+    ok('a camp pulled out of its area stacks a second pack', alive().length === size * 2, `${alive().length}`)
+    for (let i = 0; i < 6; i++) {
+      for (const m of alive()) if (Math.hypot(m.x - camp.x, m.y - camp.y) < 700) { m.x = camp.x + 1100; m.y = camp.y; m.nextThink = 1e9; m.order = { t: 'idle' } }
+      run(w, 60)
+    }
+    ok('stacks are capped', alive().length <= size * 4 && alive().length >= size * 4, `${alive().length}`)
+    // a hero standing in the camp blocks the spawn
+    const w2 = fresh(); clearCreeps(w2); freeze(w2); const q = w2.player
+    const c2 = w2.camps.find((c) => c.tier === 0)!; run(w2, 1)
+    for (const m of c2.members) m.dead = true
+    q.x = c2.x; q.y = c2.y; run(w2, 60 - (w2.time % 60) + 0.7)
+    ok('a hero standing in the camp blocks the respawn', c2.members.filter((m) => !m.dead).length === 0)
+    q.x = 470; q.y = 9100; run(w2, 60)
+    ok('and it spawns at the next minute once the hero leaves', c2.members.filter((m) => !m.dead).length === 5)
+    // healing on the way home
+    const w3 = fresh(); clearCreeps(w3); freeze(w3); run(w3, 1)
+    const c3 = w3.camps.find((c) => c.tier === 2)!; const g = c3.members[0]
+    g.hp = g.st.maxHp * 0.3; g.lastDamagedByEnemy = w3.time; g.x = c3.x + 600; g.y = c3.y; g.nextThink = 0; g.extra.provoked = undefined
+    run(w3, 8)
+    ok('a neutral that walks home heals', g.hp > g.st.maxHp * 0.95, `${(g.hp / g.st.maxHp * 100).toFixed(0)}%`)
+    // lane creeps retaliate against a camp that attacks them but do not start fights
+    const w4 = fresh(); clearCreeps(w4); freeze(w4); run(w4, 1)
+    const c4 = w4.camps.find((c) => c.tier === 1)!; const mon = c4.members[0]
+    const lc = w4.spawnCreep(0, 'melee', 'mid', 3000); lc.x = c4.x + 200; lc.y = c4.y; lc.nextThink = 0; lc.base.maxHp = 2000; lc.hp = 2000
+    mon.aiTarget = null; mon.nextThink = 0
+    run(w4, 1.5)
+    ok('neutrals attack a lane creep that was led into their camp', mon.aiTarget === lc || c4.members.some((m) => m.aiTarget === lc) || lc.hp < 2000, `hp ${lc.hp.toFixed(0)}`)
+    ok('the lane creep fights back', lc.aiTarget !== null && isNeutral(lc.aiTarget.team))
+    const w5 = fresh(); clearCreeps(w5); freeze(w5); run(w5, 1)
+    const c5 = w5.camps.find((c) => c.tier === 1)!
+    const lc5 = w5.spawnCreep(0, 'melee', 'mid', 3000); lc5.x = c5.x + 480; lc5.y = c5.y; lc5.nextThink = 0
+    for (const m of c5.members) m.nextThink = 1e9
+    run(w5, 1)
+    ok('a lane creep passing near a camp does not pick a fight', !lc5.aiTarget || !isNeutral(lc5.aiTarget.team))
+  },
+  roshan() {
+    const w = fresh(); clearCreeps(w); freeze(w); const p = w.player
+    run(w, 1)
+    const r = w.roshan!
+    ok('Roshan spawns once at the start in his pit', !!r && !r.dead && Math.hypot(r.x - ROSHAN_PIT.x, r.y - ROSHAN_PIT.y) < 5, r ? `${r.x},${r.y}` : 'none')
+    ok('he does not attack a hero standing next to him', (() => { place(w, r.x + 200, r.y + 100); w.orderStop(p, true); r.nextThink = 0; run(w, 3); return r.aiTarget === null && p.hp === p.st.maxHp })())
+    // hit him: he fights back, Slam stuns
+    w.damage(p, r, 10, 'physical'); r.nextThink = 0; run(w, 1)
+    ok('he fights back at whoever hit him', r.aiTarget === p)
+    run(w, 1.5)
+    ok('Slam stuns the hero', p.hasBuff('roshan_slam') || p.hp < p.st.maxHp - RULES.roshSlamDmg * 0.5, `hp ${p.hp.toFixed(0)}/${p.st.maxHp}`)
+    // heals when left alone
+    place(w, 4000, 4000); r.hp = r.st.maxHp * 0.4; r.lastDamagedByEnemy = w.time; r.extra.provoked = undefined; r.aiTarget = null
+    run(w, 40)
+    ok('he heals to full when left alone', r.hp > r.st.maxHp * 0.99, `${(r.hp / r.st.maxHp * 100).toFixed(0)}%`)
+    // kill: team paid, Aegis drops
+    const mate = w.heroes.find((h) => h.team === 0 && h !== p)!; const foe = w.heroes.find((h) => h.team === 1)!
+    const g0 = [p.h!.gold, mate.h!.gold, foe.h!.gold]
+    place(w, r.x + 150, r.y); w.kill(r, p)
+    ok('every hero of the killing team gets 250 gold, the other team nothing', p.h!.gold - g0[0] >= RULES.roshGold && mate.h!.gold - g0[1] >= RULES.roshGold && foe.h!.gold - g0[2] < 100, `${p.h!.gold - g0[0]} ${mate.h!.gold - g0[1]} ${foe.h!.gold - g0[2]}`)
+    const drop = w.runes.find((x) => x.kind === 'aegis')
+    ok('the Aegis drops on the ground where he fell', !!drop && Math.hypot(drop!.x - r.x, drop!.y - r.y) < 5)
+    ok('Roshan returns in 8-11 minutes', w.roshanAt - w.time >= RULES.roshMin - 1 && w.roshanAt - w.time <= RULES.roshMax + 1, `${(w.roshanAt - w.time).toFixed(0)}s`)
+    // only the killing team can take it at first
+    foe.dead = false; foe.x = drop!.x; foe.y = drop!.y
+    run(w, 0.5)
+    ok('the enemy cannot take it during the first seconds', w.runes.some((x) => x.kind === 'aegis') && !foe.h!.items.some((i) => i?.def.id === 'aegis'))
+    p.x = drop!.x; p.y = drop!.y; run(w, 0.5)
+    ok('the killer picks it up', p.h!.items.some((i) => i?.def.id === 'aegis') && !w.runes.some((x) => x.kind === 'aegis'))
+    ok('it cannot be sold or bought', (() => { place(w, 470, 9100); const slot = p.h!.items.findIndex((i) => i?.def.id === 'aegis'); return !w.sellItem(p, slot) && w.buyItem(p, 'aegis') !== null })())
+    // dying with it: revived in place, full stats, no death, no gold loss
+    place(w, 3000, 3000); p.h!.gold = 1000; const deaths = p.h!.deaths; p.hp = 50
+    w.kill(p, foe)
+    ok('the Aegis is consumed, no death is counted and no gold is lost', !p.h!.items.some((i) => i?.def.id === 'aegis') && p.h!.deaths === deaths && p.h!.gold === 1000 && p.dead)
+    ok('buyback is refused while the Aegis revives', w.buyback(p) !== null)
+    run(w, RULES.aegisRevive + 0.2)
+    ok('revived on the same spot with full health and mana', !p.dead && Math.hypot(p.x - 3000, p.y - 3000) < 5 && p.hp === p.st.maxHp && p.mana === p.st.maxMana, `${p.x.toFixed(0)},${p.y.toFixed(0)} hp ${p.hp.toFixed(0)}`)
+    ok('no kill reward for the killer', foe.h!.kills === 0)
+    // the item expires
+    const it = (w.giveItem(p, ITEM_BY_ID.aegis), p.h!.items.find((i) => i?.def.id === 'aegis')!); it.expiresAt = w.time + RULES.aegisLife
+    run(w, RULES.aegisLife + 1)
+    ok('the Aegis expires after 5 minutes', !p.h!.items.some((i) => i?.def.id === 'aegis'))
+    // the drop on the ground disappears by itself
+    const w2 = fresh(); clearCreeps(w2); freeze(w2); run(w2, 1)
+    w2.kill(w2.roshan!, w2.player); run(w2, RULES.aegisGround + 1)
+    ok('an unclaimed Aegis vanishes from the ground', !w2.runes.some((x) => x.kind === 'aegis'))
+    run(w2, RULES.roshMax)
+    ok('Roshan comes back after the timer, stronger than before', !!w2.roshan && !w2.roshan.dead && w2.roshan.st.maxHp > 5500, `${w2.roshan?.st.maxHp.toFixed(0)}`)
+    // snapshot round trip carries the pickup and the item expiry
+    const w3 = fresh(); clearCreeps(w3); freeze(w3); run(w3, 1); w3.kill(w3.roshan!, w3.player)
+    w3.giveItem(w3.heroes[1], ITEM_BY_ID.aegis); w3.heroes[1].h!.items.find((i) => i?.def.id === 'aegis')!.expiresAt = 123
+    const enc = new SnapshotEncoder(), dec = new SnapshotDecoder(), rep = new Replica()
+    const d = dec.decode(JSON.parse(JSON.stringify(enc.encode(snapshotFor(w3, 0, w3.player.id, 1, { sfx: [], ann: [], txt: [], vfx: [] } as any, new Frame())))))
+    if (d) rep.apply(d, 1000)
+    ok('snapshot carries the Aegis pickup (team, expiry) and the item expiry', rep.world.runes.some((x) => x.kind === 'aegis' && x.team === 0 && !!x.expires) && rep.world.heroes[1].h!.items.some((i) => i?.def.id === 'aegis' && i.expiresAt === 123))
+  },
+  map() {
+    const w = fresh()
+    const spawn = [{ x: FOUNTAIN_POS[0].x + 240, y: FOUNTAIN_POS[0].y - 240 }, { x: FOUNTAIN_POS[1].x - 240, y: FOUNTAIN_POS[1].y + 240 }]
+    const points: [string, Pt][] = [
+      ...CAMPS.map((c, i) => [`camp ${i}`, c] as [string, Pt]),
+      ...POWER_RUNES.map((r, i) => [`power rune ${i}`, r] as [string, Pt]),
+      ...BOUNTY_RUNES.map((r, i) => [`bounty rune ${i}`, r] as [string, Pt]),
+      ['Roshan pit', ROSHAN_PIT],
+      ['pit mouth', { x: ROSHAN_PIT.x + 420, y: ROSHAN_PIT.y + 420 }],
+      ['river pool', { x: MAP - ROSHAN_PIT.x - 300, y: MAP - ROSHAN_PIT.y - 300 }],
+    ]
+    for (const [name, pt] of points) {
+      const g = freePoint(pt)
+      ok(`${name} is reachable from both fountains`, canReach(spawn[0], g) && canReach(spawn[1], g), `${pt.x.toFixed(0)},${pt.y.toFixed(0)}`)
+    }
+    for (const t of w.towers) ok(`${t.team ? 'Dire' : 'Radiant'} tier ${t.tier + 1} ${t.lane ?? ''} tower is not buried in a tree or rock`, !solidsNear(t.x, t.y).some((c) => Math.hypot(c.x - t.x, c.y - t.y) < c.r + t.radius * 0.8))
+    for (const lane of LANES) ok(`${lane} lane has the same length for both teams`, Math.abs(PATHS[0][lane].len - PATHS[1][lane].len) < 1e-6, `${PATHS[0][lane].len.toFixed(0)}`)
+    ok('the river is the mirror image of itself (fair for both teams)', Math.abs(RIVER_PATH.distTo({ x: MAP - 3000, y: MAP - 3000 }) - RIVER_PATH.distTo({ x: 3000, y: 3000 })) < 1)
+    ok('only the mid lane crosses the river', FORDS.length === 1, `${FORDS.length} fords`)
+    ok('terrain never rises above the base level', [[2450, 2300], [4800, 4800], [900, 900], [5000, 5200]].every(([x, y]) => heightAt(x, y) <= 0) && heightAt(4800, 4800) < -20)
+    ok('the pit is a hollow and the water leaves it open', heightAt(ROSHAN_PIT.x, ROSHAN_PIT.y) < -50)
   },
   soak() {
     const seed = Number(process.argv[3] || 1)
