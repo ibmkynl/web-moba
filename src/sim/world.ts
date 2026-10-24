@@ -1,5 +1,5 @@
 import {
-  BASE_POS, BOUNTY_RUNES, CAMPS, FOUNTAIN_POS, Lane, LANES, MAP, MAX_LEVEL, PATHS, POWER_RUNES, Pt, RULES, TEAM_NAME, T3_POS, T4_POS, TOWER_ARCS, Team, XP_TABLE, LANE_SLOTS, NEUTRAL, isNeutral, clamp, dist, mirror, pushOutOfWalls, shuffle,
+  BASE_POS, BOUNTY_RUNES, CAMPS, FOUNTAIN_POS, groundLevel, Lane, LANES, MAP, MAX_LEVEL, PATHS, POWER_RUNES, Pt, RULES, TEAM_NAME, T3_POS, T4_POS, TOWER_ARCS, Team, XP_TABLE, LANE_SLOTS, NEUTRAL, isNeutral, clamp, dist, mirror, pushOutOfWalls, shuffle,
 } from './constants'
 import {
   AbilityState, Buff, CastTarget, DmgType, HeroDef, HeroState, ItemState, Order, Stats, Unit,
@@ -136,6 +136,8 @@ export interface VisionSpot {
   r: number
   until: number
   follow?: Unit
+  /** ground level it sees from (default: the level of its own position) */
+  lvl?: number
 }
 
 /**
@@ -551,11 +553,12 @@ export class World implements WorldView {
   computeVision() {
     for (const team of [0, 1] as Team[]) {
       const set = new Set<number>()
-      const obs: { x: number; y: number; r: number }[] = []
-      for (const u of this.units) if (u.team === team && !u.dead) obs.push({ x: u.x, y: u.y, r: this.visionOf(u) })
-      for (const z of this.zones) if (z.reveal && z.team === team && this.time >= z.start) obs.push({ x: z.x, y: z.y, r: z.r + 100 })
+      // each observer also has a ground level: low ground cannot see high ground (flying couriers see everything)
+      const obs: { x: number; y: number; r: number; lvl: number }[] = []
+      for (const u of this.units) if (u.team === team && !u.dead) obs.push({ x: u.x, y: u.y, r: this.visionOf(u), lvl: u.kind === 'courier' ? 1 : groundLevel(u.x, u.y) })
+      for (const z of this.zones) if (z.reveal && z.team === team && this.time >= z.start) obs.push({ x: z.x, y: z.y, r: z.r + 100, lvl: groundLevel(z.x, z.y) })
       const wards = this.wards.filter((wd) => wd.team === team)
-      for (const wd of wards) obs.push({ x: wd.x, y: wd.y, r: WARD_VISION })
+      for (const wd of wards) obs.push({ x: wd.x, y: wd.y, r: WARD_VISION, lvl: groundLevel(wd.x, wd.y) })
       for (const sp of this.visionSpots) {
         if (sp.team !== team || sp.until <= this.time) continue
         if (sp.follow) {
@@ -563,7 +566,7 @@ export class World implements WorldView {
           sp.x = sp.follow.x
           sp.y = sp.follow.y
         }
-        obs.push({ x: sp.x, y: sp.y, r: sp.r })
+        obs.push({ x: sp.x, y: sp.y, r: sp.r, lvl: sp.lvl ?? groundLevel(sp.x, sp.y) })
       }
       for (const u of this.units) {
         if (u.dead) continue
@@ -576,8 +579,9 @@ export class World implements WorldView {
           if (wards.some((wd) => (u.x - wd.x) ** 2 + (u.y - wd.y) ** 2 <= WARD_VISION * WARD_VISION)) set.add(u.id)
           continue
         }
+        const ul = groundLevel(u.x, u.y)
         for (const o of obs) {
-          if ((u.x - o.x) ** 2 + (u.y - o.y) ** 2 <= o.r * o.r) {
+          if (o.lvl >= ul && (u.x - o.x) ** 2 + (u.y - o.y) ** 2 <= o.r * o.r) {
             set.add(u.id)
             break
           }
@@ -632,9 +636,9 @@ export class World implements WorldView {
   }
 
   /** Give `team` vision of a circle (or of a moving unit) for `dur` seconds. */
-  grantVision(team: Team, x: number, y: number, r: number, dur: number, follow?: Unit) {
+  grantVision(team: Team, x: number, y: number, r: number, dur: number, follow?: Unit, lvl?: number) {
     if ((team as number) === 2) return
-    this.visionSpots.push({ team, x, y, r, until: this.time + dur, follow })
+    this.visionSpots.push({ team, x, y, r, until: this.time + dur, follow, lvl })
     if (this.visionSpots.length > 120) this.visionSpots.shift()
     this.visTimer = 0
   }
@@ -1728,6 +1732,22 @@ export class World implements WorldView {
   camps: { x: number; y: number; tier: number; members: Unit[] }[] = CAMPS.map((c) => ({ x: c.x, y: c.y, tier: c.tier, members: [] }))
   nextCamp = 0.5
 
+  /** True when a hero, lane creep, summon, ward or neutral stands inside the camp's spawn area. */
+  private campBlocked(c: { x: number; y: number; tier: number }) {
+    const r2 = RULES.campArea[c.tier] ** 2
+    const inside = (x: number, y: number) => (x - c.x) ** 2 + (y - c.y) ** 2 <= r2
+    for (const u of this.units) {
+      if (u.dead || u.isBuilding || u.kind === 'courier') continue
+      if (inside(u.x, u.y)) return true
+    }
+    return this.wards.some((wd) => inside(wd.x, wd.y))
+  }
+
+  /** Number of packs a camp currently holds (more than one means it has been stacked). */
+  campStacks(c: { members: Unit[] }, packSize: number) {
+    return Math.ceil(c.members.filter((m) => !m.dead).length / packSize)
+  }
+
   private spawnCamps() {
     // Dota 2 neutral stats (wiki): no time scaling. [name, sub, radius, hp, dmg, armor, range, bat, ap, ms, bounty, xp]
     type M = [string, string, number, number, number, number, number, number, number, number, number, number]
@@ -1754,9 +1774,11 @@ export class World implements WorldView {
       ],
     ]
     for (const c of this.camps) {
-      if (c.members.some((m) => !m.dead)) continue
-      c.members = []
       const pack = packs[c.tier]
+      c.members = c.members.filter((m) => !m.dead)
+      // a camp spawns only when nothing stands in its area (neutrals that stayed home block it); neutrals pulled out of the
+      // area leave room for a second pack, so the camp stacks, up to a limit
+      if (this.campBlocked(c) || c.members.length >= pack.length * RULES.maxStacks) continue
       pack.forEach((m, i) => {
         const [name, sub, r, hp, dmg, armor, range, bat, ap, ms, bounty, xp] = m
         const u = new Unit(NEUTRAL, 'creep', sub, name, r, {
@@ -2451,7 +2473,8 @@ export class World implements WorldView {
       const dy = c.y - u.y
       const dd = Math.hypot(dx, dy) || 1
       const k = Math.min(1, reach / dd)
-      this.grantVision(u.team, u.x + dx * k, u.y + dy * k, 500, 3)
+      // an area spell lights up the ground it lands on, but only as high as its caster can see
+      this.grantVision(u.team, u.x + dx * k, u.y + dy * k, 500, 3, undefined, groundLevel(u.x, u.y))
     } else if (d.behavior === 'unit' && c.target && c.target.team !== u.team && !c.target.isBuilding) {
       this.grantVision(u.team, c.target.x, c.target.y, 380, 2, c.target)
     }

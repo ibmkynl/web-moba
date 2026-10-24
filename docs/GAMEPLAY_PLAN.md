@@ -506,14 +506,14 @@ a walled high-ground base with three ramps, Tier 1-4 tower structure, a fountain
 | Area | Today | Target |
 |---|---|---|
 | Lane shape | polylines with sharp corners at the map corners | **rounded corners** (smoothed polylines) so the side lanes sweep around the map like Dota's; same lengths so creep meeting points stay fair |
-| River | a thin, evenly wobbling band corner to corner | **wider, curved river** with the bend and the wider pool at its north-west end; fords where the lanes cross it |
-| Relief | flat ground; cliffs are only rock props | a shared **`heightAt(x, y)`** (new, in `constants.ts`): base plateau raised with smooth ramps at the three gates, river lowered, mid lane slightly below the jungles; used by the renderer for a displaced ground mesh and by the sim for the high-ground vision rule (`groundLevel`) |
-| Jungle camps | 8 per side, 3 pack types | **11 per side** like the labelled map: 4 along the map edges (the well and the statue areas), 7 in the two jungles; same 3 neutral pack types (small = kobolds, medium/hard = wolves, ancient = golems) |
+| River | a thin band running corner to corner, so the side lanes cross it at the map corners | **wider river that stops short of the corners** (Dota's river ends inside the map, closed by rocks and pools), so the side lanes never cross it; only the mid lane does, at the centre; tapered pool ends |
+| Relief | flat ground; cliffs are only rock props | a shared **`heightAt(x, y)`** (new, in `constants.ts`) that is **never above 0**: river bed and the Roshan pit sink, the mid lane is a shallow valley (lowground), jungles, side lanes and the base stay at 0 (highground). Only sinking is allowed because hundreds of effects sit at ground level and raising the base would bury them. Used for a displaced ground mesh and for unit height. The base plateau is shown by a taller cliff rim; the high-ground vision rule (`groundLevel`, feature 6) is a separate pure function over the base box |
+| Jungle camps | 8 per side, 3 pack types | stay **8 per side** (3 in the secondary jungle, 5 in the primary), re-tiered toward the wiki's mix (ancient / hard / medium / small), same 3 pack types (small = kobolds, medium and hard = wolves, ancient = golems). The wiki's extra edge-area camps (well, mines, statue, graveyard) are skipped: our side lanes sit too close to the map edge to leave room for those pockets |
 | Jungle paths | cosmetic dirt trails, 3 per side | trails that **connect every camp to a lane** and form the two jungle routes (primary and secondary), kept free of trees; juke gaps and ward-spot nooks left in the tree line |
 | Base | square walled box, three ramps | same walls, **chamfered corner toward the map centre**, flatter ramps, a raised fountain pad; towers T3 on the ramps, T4 pair by the Ancient (already there) |
 | Roshan | none | a **pit at the north-west end of the river**: a depression with one opening to the river, a clear approach and ward-spot cliffs; this is where feature 8 puts Roshan |
 | Runes | 2 power-rune spots, 4 bounty spots | keep the 2 river power spots; bounty spots moved into the jungles beside the primary camps |
-| Edge areas | dense forest belt | keep the belt, but open **the four edge areas** (south, north, west, east) as walkable pockets that hold their camps |
+| Edge areas | dense forest belt | unchanged (see camps) |
 
 **Implementation plan.**
 
@@ -525,8 +525,9 @@ a walled high-ground base with three ramps, Tier 1-4 tower structure, a fountain
 2. **Obstacles (`obstacles.ts`).** Tree and rock scatter already avoids lanes, rivers, camps, trails and structures; add
    the Roshan pit and the edge pockets to the keep-clear rules, and thicker tree lines along the new river banks so the
    river reads as enclosed.
-3. **Terrain (`terrain3d.ts`).** Displace the ground mesh by `heightAt` (more grid segments), put every prop (trees, rocks,
-   pads, towers, units) at the local height, repaint the ground canvas for the new river and lanes, carve the Roshan pit.
+3. **Terrain (`terrain3d.ts`).** Displace the ground mesh by `heightAt` (more grid segments), put units and couriers at the
+   local height (props keep y = 0: they are placed outside the sinking zones), repaint the ground canvas for the new river and
+   lanes, carve the Roshan pit, close the river ends.
    Keep draw-call count flat (see `docs/PERFORMANCE.md`: the renderer is draw-call bound).
 4. **Nav (`nav.ts`).** Walkability stays flat 2D; check A* still finds every camp, ramp, the pit and both ends of every lane.
 5. **Minimap.** Draws the river, lanes and camps from the same data; verify it still matches.
@@ -536,7 +537,7 @@ a walled high-ground base with three ramps, Tier 1-4 tower structure, a fountain
    the same layout; (c) frame time not worse than before (`npm run bench:sim`, and the render probe).
 
 **Skipped on purpose (needs features we lack, as you said):** secret shop, outposts, watchers, twin gates, lotus pools,
-shrines, effigies, defender's gates, barracks, Tormentor, wisdom runes, edge-area buffs (well, mines, statue,
+shrines, effigies, defender's gates, barracks, Tormentor, wisdom runes, edge-area camps and buffs (well, mines, statue,
 graveyard), new neutral creep types, trees that can be cut, and tree/cliff vision blocking. The labelled map's markers for
 these are ignored.
 

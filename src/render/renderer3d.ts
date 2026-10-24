@@ -1,4 +1,4 @@
-import { ROCKS, TREES } from '../sim/obstacles'
+import { ROCKS, TREES, heightAt } from '../sim/obstacles'
 import * as THREE from 'three'
 import { MAP, Pt, TEAM_COLOR, Team, isNeutral } from '../sim/constants'
 import type { Unit } from '../sim/entities'
@@ -439,7 +439,7 @@ export class Renderer3D {
           wings.children.forEach((w) => (w.rotation.x = (w.userData.side as number) * fl))
         }
       }
-      g.position.set(u.x, y, u.y)
+      g.position.set(u.x, y + (u.isBuilding ? 0 : heightAt(u.x, u.y)), u.y)
       if (!u.isBuilding) g.rotation.y = -u.facing + Math.PI / 2 * 0 // model faces +X
       const moving = Math.abs(u.vx) + Math.abs(u.vy) > 1
       if (m.body && !u.isBuilding) {

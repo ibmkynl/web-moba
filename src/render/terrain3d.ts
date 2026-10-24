@@ -1,11 +1,12 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { BASE_POS, CAMPS, FOUNTAIN_POS, LANES, MAP, PATHS, POWER_RUNES, Pt, T4_POS, TRAILS, WALLS, mirror } from '../sim/constants'
-import { LANE_PATHS, RIVER, RIVER_PATH, ROCKS, TREES, baseDist, fountainDist, laneDist, mulberry, riverDist } from '../sim/obstacles'
+import { BASE_POS, CAMPS, FOUNTAIN_POS, LANES, MAP, PATHS, PIT_R, POWER_RUNES, Pt, ROSHAN_PIT, T4_POS, TRAILS, WALLS, mirror } from '../sim/constants'
+import { FORDS, LANE_PATHS, RIVER, RIVER_PATH, ROCKS, TREES, baseDist, fountainDist, heightAt, laneDist, mulberry, riverDist, riverHalfAt } from '../sim/obstacles'
 
 /* ------------------------------------------------------------------ shared */
 
-const WATER_HALF = 285
+/** Water surface height: the river bed (see heightAt) lies below it. */
+const WATER_Y = -9
 const rng = mulberry
 
 interface Item {
@@ -158,24 +159,7 @@ interface Plan {
 }
 
 function makePlan(): Plan {
-  const all: Pt[] = CAMPS.map((c) => ({ x: c.x, y: c.y }))
-  // fords: where each lane comes closest to the river centre line
-  const fords: Pt[] = []
-  for (const path of LANE_PATHS) {
-    let best = Infinity
-    let bp = path.pts[0]
-    for (let s = 0; s <= path.len; s += 20) {
-      const p = path.at(s)
-      const d = RIVER_PATH.distTo(p)
-      if (d < best - 1) {
-        best = d
-        bp = p
-      }
-    }
-    fords.push(bp)
-  }
-  const runes = POWER_RUNES
-  return { camps: all, fords, runes }
+  return { camps: CAMPS.map((c) => ({ x: c.x, y: c.y })), fords: FORDS, runes: POWER_RUNES }
 }
 
 /* --------------------------------------------------------------------- entry */
@@ -322,11 +306,26 @@ function paintGroundCanvas(plan: Plan) {
     ctx.stroke()
   }
 
-  // river banks / bed
-  stroke(RIVER, 1100, 'rgba(70,74,48,0.40)')
-  stroke(RIVER, 880, 'rgba(150,140,96,0.55)')
-  stroke(RIVER, 700, 'rgba(120,112,80,0.8)')
-  stroke(RIVER, 640, '#1d3c4a')
+  // river banks / bed: each layer follows the tapering width of the water
+  const riverLayer = (extra: number, style: string) => {
+    let s = 0
+    ctx.strokeStyle = style
+    ctx.lineCap = 'round'
+    for (let i = 1; i < RIVER.length; i++) {
+      const a = RIVER[i - 1]
+      const b = RIVER[i]
+      ctx.lineWidth = 2 * (riverHalfAt(s) + extra)
+      ctx.beginPath()
+      ctx.moveTo(a.x, a.y)
+      ctx.lineTo(b.x, b.y)
+      ctx.stroke()
+      s += Math.hypot(b.x - a.x, b.y - a.y)
+    }
+  }
+  riverLayer(250, 'rgba(70,74,48,0.40)')
+  riverLayer(140, 'rgba(150,140,96,0.5)')
+  riverLayer(55, 'rgba(120,112,80,0.8)')
+  riverLayer(28, '#1d3c4a')
   for (let i = 0; i < 1400; i++) {
     const p = RIVER_PATH.at(r() * RIVER_PATH.len)
     const a = r() * 6.28
@@ -336,6 +335,18 @@ function paintGroundCanvas(plan: Plan) {
     ctx.arc(p.x + Math.cos(a) * d, p.y + Math.sin(a) * d, 5 + r() * 9, 0, Math.PI * 2)
     ctx.fill()
   }
+
+  // Roshan's pit: trampled dark soil with a ring of scorched ground
+  blob(ROSHAN_PIT.x, ROSHAN_PIT.y, PIT_R + 240, [38, 30, 26], 0.85)
+  ctx.fillStyle = 'rgba(24,18,16,0.85)'
+  ctx.beginPath()
+  ctx.arc(ROSHAN_PIT.x, ROSHAN_PIT.y, PIT_R, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.strokeStyle = 'rgba(255,120,40,0.35)'
+  ctx.lineWidth = 14
+  ctx.beginPath()
+  ctx.arc(ROSHAN_PIT.x, ROSHAN_PIT.y, PIT_R * 0.7, 0, Math.PI * 2)
+  ctx.stroke()
 
   // jungle camps
   for (const cp of plan.camps) {
@@ -498,6 +509,8 @@ function noiseTexture() {
   return t
 }
 
+const GROUND_SEGS = 192
+
 function buildGround(scene: THREE.Scene, plan: Plan): HTMLCanvasElement {
   const canvas = paintGroundCanvas(plan)
   const tex = new THREE.CanvasTexture(canvas)
@@ -516,14 +529,19 @@ function buildGround(scene: THREE.Scene, plan: Plan): HTMLCanvasElement {
         diffuseColor.rgb *= 0.55 + 0.9 * dn;`,
       )
   }
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(MAP, MAP), mat)
+  // a displaced grid: the river bed, the mid lane valley and Roshan's pit sink below the rest of the map (see heightAt)
+  const geo = new THREE.PlaneGeometry(MAP, MAP, GROUND_SEGS, GROUND_SEGS)
+  const gp = geo.attributes.position
+  for (let i = 0; i < gp.count; i++) gp.setZ(i, heightAt(MAP / 2 + gp.getX(i), MAP / 2 - gp.getY(i)))
+  geo.computeVertexNormals()
+  const ground = new THREE.Mesh(geo, mat)
   ground.rotation.x = -Math.PI / 2
   ground.position.set(MAP / 2, 0, MAP / 2)
   ground.receiveShadow = true
   scene.add(ground)
   const outer = new THREE.Mesh(new THREE.PlaneGeometry(MAP + 16000, MAP + 16000), new THREE.MeshStandardMaterial({ color: '#2c4a26', roughness: 1 }))
   outer.rotation.x = -Math.PI / 2
-  outer.position.set(MAP / 2, -3, MAP / 2)
+  outer.position.set(MAP / 2, -90, MAP / 2)
   scene.add(outer)
   return canvas
 }
@@ -545,7 +563,8 @@ function buildWater(scene: THREE.Scene, tick: Array<(t: number) => void>) {
     const l = Math.hypot(tx, ty) || 1
     const nx = -ty / l
     const ny = tx / l
-    pos.push(p.x + nx * WATER_HALF, 2, p.y + ny * WATER_HALF, p.x - nx * WATER_HALF, 2, p.y - ny * WATER_HALF)
+    const hw = riverHalfAt(acc)
+    pos.push(p.x + nx * hw, WATER_Y, p.y + ny * hw, p.x - nx * hw, WATER_Y, p.y - ny * hw)
     uv.push(0, acc / 500, 1, acc / 500)
     if (i < n - 1) acc += Math.hypot(RIVER[i + 1].x - p.x, RIVER[i + 1].y - p.y)
     if (i < n - 1) idx.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2)

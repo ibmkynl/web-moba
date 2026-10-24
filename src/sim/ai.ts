@@ -1,4 +1,4 @@
-import { Lane, LANES, MAP, PATHS, Pt, TOWER_ARCS, dist, isNeutral } from './constants'
+import { Lane, LANES, MAP, PATHS, Pt, RULES, TOWER_ARCS, dist, isNeutral } from './constants'
 import type { HeroState, Stats, Unit } from './entities'
 import type { TeamBrain, TeamOrder } from './team'
 import type { World } from './world'
@@ -36,6 +36,10 @@ function neutralAI(w: World, u: Unit) {
   if (u.forced || u.isStunned()) return
   const home: Pt = u.extra.home
   const camp = u.extra.camp
+  // out of the fight, jungle monsters recover: quickly while walking home, slowly while standing there
+  if (u.hp < u.st.maxHp && (u.extra.returning || w.time - u.lastDamagedByEnemy > 8)) {
+    u.hp = Math.min(u.st.maxHp, u.hp + u.st.maxHp * (u.extra.returning ? RULES.neutralReturnRegen : RULES.neutralReturnRegen / 5) * 0.2)
+  }
   if (u.extra.returning) {
     u.aiTarget = null
     if (dist(u, home) < 60) {
@@ -57,9 +61,11 @@ function neutralAI(w: World, u: Unit) {
   if (!t) {
     let bd = 520
     for (const e of w.units) {
-      if (e.dead || isNeutral(e.team) || e.isBuilding || e.kind === 'courier' || e.kind === 'creep') continue
+      if (e.dead || isNeutral(e.team) || e.isBuilding || e.kind === 'courier') continue
       if (e.isInvulnerable() || e.isInvisible(w.time)) continue
       const d = dist(u, e)
+      // a lane creep only draws the camp when it has been led into it
+      if (e.kind === 'creep' && d > 380) continue
       if (d < bd) {
         bd = d
         t = e
@@ -99,7 +105,9 @@ function creepAI(w: World, u: Unit) {
   let best: Unit | null = null
   let bs = Infinity
   for (const e of w.units) {
-    if (e.dead || e.team === u.team || e.kind === 'fountain' || isNeutral(e.team)) continue
+    if (e.dead || e.team === u.team || e.kind === 'fountain') continue
+    // lane creeps leave jungle monsters alone unless one is attacking them
+    if (isNeutral(e.team) && e.aiTarget !== u) continue
     if (e.isInvulnerable() || !w.isVisible(u.team, e)) continue
     const d = dist(u, e) - e.radius
     if (d > (e.isBuilding ? (siege ? reach + 60 : 330) : 520)) continue
@@ -113,7 +121,8 @@ function creepAI(w: World, u: Unit) {
 
   // 3. never wander far from the lane: give up the chase and walk back
   const offLane = path.distTo(u)
-  if (t && !t.isBuilding && offLane > 700) t = null
+  // (a jungle monster that is attacking this creep is the exception: it fights back wherever it is)
+  if (t && !t.isBuilding && offLane > 700 && !(isNeutral(t.team) && t.aiTarget === u)) t = null
 
   u.aiTarget = t
   if (t) {

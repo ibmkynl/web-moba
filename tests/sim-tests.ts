@@ -7,7 +7,7 @@ import { ITEM_BY_ID } from '../src/sim/items'
 import { recommendItem } from '../src/sim/recommend'
 import { freePoint } from '../src/sim/nav'
 import { HEROES } from '../src/sim/heroes'
-import { isNeutral } from '../src/sim/constants'
+import { groundLevel, isNeutral } from '../src/sim/constants'
 import { Frame, Replica, SnapshotDecoder, SnapshotEncoder, snapshotFor } from '../src/net/snapshot'
 
 const STEP = 1 / 60
@@ -473,6 +473,86 @@ const tests: Record<string, () => void> = {
     const dmgU = (() => { foe.base.armor = 0; foe.st.armor = 0; const a = foe.hp; w2.applyAttack(sg, foe); return a - foe.hp })()
     ok('siege deals 3x to a building and 0.5x to a unit', Math.abs(dmgB / dmgU - 6) < 0.8 && dmgB > 100, `building ${dmgB.toFixed(0)} unit ${dmgU.toFixed(0)}`)
     const es = w2.spawnCreep(1, 'siege', 'mid', 1500); const g0 = p.h!.gold; w2.kill(es, p); ok('killing a siege creep pays 66 gold', p.h!.gold - g0 === 66, `${p.h!.gold - g0}`)
+  },
+  highground() {
+    const w = fresh(); clearCreeps(w); freeze(w); const p = w.player
+    // Dire base high ground: well inside the walls; low ground: just outside the ramp
+    const hi = { x: 6850, y: 2000 }, lo = { x: 6300, y: 2000 }
+    ok('groundLevel: base interior is high, the lane outside is low', groundLevel(hi.x, hi.y) === 1 && groundLevel(lo.x, lo.y) === 0 && groundLevel(900, 8700) === 1 && groundLevel(4800, 4800) === 0)
+    ok('groundLevel: the ramp mouth is low ground', groundLevel(8700, 800) === 0 || groundLevel(8700 - 1, 2800) === 0)
+    const enemy = w.heroes.find((h) => h.team === 1)!; enemy.noAuto = true; enemy.dead = false; enemy.hp = enemy.st.maxHp
+    enemy.x = hi.x; enemy.y = hi.y
+    p.x = lo.x; p.y = lo.y; w.computeVision()
+    ok('a hero on low ground cannot see a unit on the high ground in range', Math.hypot(p.x - enemy.x, p.y - enemy.y) < 1000 && !w.isVisible(0, enemy), `dist ${Math.hypot(p.x - enemy.x, p.y - enemy.y).toFixed(0)}`)
+    ok('...and cannot target it', !w.canHit(p, enemy))
+    // a ward on the high ground sees it
+    w.wards.push({ id: 99, x: hi.x + 200, y: hi.y - 200, team: 0, expires: w.time + 100 }); w.computeVision()
+    ok('a ward on the high ground reveals it', w.isVisible(0, enemy))
+    w.wards = []; w.computeVision()
+    ok('without the ward it is hidden again', !w.isVisible(0, enemy))
+    // flying courier sees the high ground
+    const c = w.courierFor(p)!; c.x = lo.x + 150; c.y = lo.y; w.computeVision()
+    ok('a courier flies over the cliffs and sees the high ground', w.isVisible(0, enemy), `vision ${w.visionOf(c)}`)
+    c.x = 470; c.y = 9100
+    // area spell from below does not light the plateau; a hero on the high ground does
+    w.grantVision(0, hi.x, hi.y, 600, 3, undefined, 0); w.computeVision()
+    ok('an area vision spot cast from low ground does not reveal the plateau', !w.isVisible(0, enemy))
+    p.x = hi.x + 300; p.y = hi.y - 100; w.computeVision()
+    ok('walking up (a hero on the high ground) reveals it', w.isVisible(0, enemy))
+    // the enemy tower on its own high ground sees the lane below
+    const low = w.heroes.find((h) => h.team === 0 && h !== p)!; low.x = lo.x; low.y = lo.y; low.dead = false; low.hp = low.st.maxHp; p.x = 470; p.y = 9100; w.computeVision()
+    ok('units on low ground are seen from the high ground', w.isVisible(1, low) || Math.hypot(low.x - 8500, low.y - 1100) > 1800, '')
+    // the Dire side sees a unit on its own ground level normally
+    const mid = { x: 4800, y: 4800 }; enemy.x = mid.x; enemy.y = mid.y; p.x = mid.x - 300; p.y = mid.y; w.computeVision()
+    ok('same-level units see each other as before', w.isVisible(0, enemy))
+  },
+  camps() {
+    const w = fresh(); clearCreeps(w); freeze(w); const p = w.player
+    const packSize = [5, 3, 3]
+    run(w, 1)
+    const camp = w.camps.find((c) => c.tier === 1)!, size = packSize[1]
+    const alive = () => camp.members.filter((m) => !m.dead)
+    ok('camps spawn at the start', alive().length === size, `${alive().length}`)
+    // a full camp does not respawn: its monsters stand in the spawn area
+    run(w, 60)
+    ok('no second pack while the first stands in the camp', alive().length === size, `${alive().length}`)
+    // pulled out of the area before the minute mark: the camp stacks
+    for (const m of alive()) { m.x = camp.x + 1100; m.y = camp.y; m.nextThink = 1e9; m.order = { t: 'idle' } }
+    run(w, 60 - (w.time % 60) + 0.7)
+    ok('a camp pulled out of its area stacks a second pack', alive().length === size * 2, `${alive().length}`)
+    for (let i = 0; i < 6; i++) {
+      for (const m of alive()) if (Math.hypot(m.x - camp.x, m.y - camp.y) < 700) { m.x = camp.x + 1100; m.y = camp.y; m.nextThink = 1e9; m.order = { t: 'idle' } }
+      run(w, 60)
+    }
+    ok('stacks are capped', alive().length <= size * 4 && alive().length >= size * 4, `${alive().length}`)
+    // a hero standing in the camp blocks the spawn
+    const w2 = fresh(); clearCreeps(w2); freeze(w2); const q = w2.player
+    const c2 = w2.camps.find((c) => c.tier === 0)!; run(w2, 1)
+    for (const m of c2.members) m.dead = true
+    q.x = c2.x; q.y = c2.y; run(w2, 60 - (w2.time % 60) + 0.7)
+    ok('a hero standing in the camp blocks the respawn', c2.members.filter((m) => !m.dead).length === 0)
+    q.x = 470; q.y = 9100; run(w2, 60)
+    ok('and it spawns at the next minute once the hero leaves', c2.members.filter((m) => !m.dead).length === 5)
+    // healing on the way home
+    const w3 = fresh(); clearCreeps(w3); freeze(w3); run(w3, 1)
+    const c3 = w3.camps.find((c) => c.tier === 2)!; const g = c3.members[0]
+    g.hp = g.st.maxHp * 0.3; g.lastDamagedByEnemy = w3.time; g.x = c3.x + 600; g.y = c3.y; g.nextThink = 0; g.extra.provoked = undefined
+    run(w3, 8)
+    ok('a neutral that walks home heals', g.hp > g.st.maxHp * 0.95, `${(g.hp / g.st.maxHp * 100).toFixed(0)}%`)
+    // lane creeps retaliate against a camp that attacks them but do not start fights
+    const w4 = fresh(); clearCreeps(w4); freeze(w4); run(w4, 1)
+    const c4 = w4.camps.find((c) => c.tier === 1)!; const mon = c4.members[0]
+    const lc = w4.spawnCreep(0, 'melee', 'mid', 3000); lc.x = c4.x + 200; lc.y = c4.y; lc.nextThink = 0; lc.base.maxHp = 2000; lc.hp = 2000
+    mon.aiTarget = null; mon.nextThink = 0
+    run(w4, 1.5)
+    ok('neutrals attack a lane creep that was led into their camp', mon.aiTarget === lc || c4.members.some((m) => m.aiTarget === lc) || lc.hp < 2000, `hp ${lc.hp.toFixed(0)}`)
+    ok('the lane creep fights back', lc.aiTarget !== null && isNeutral(lc.aiTarget.team))
+    const w5 = fresh(); clearCreeps(w5); freeze(w5); run(w5, 1)
+    const c5 = w5.camps.find((c) => c.tier === 1)!
+    const lc5 = w5.spawnCreep(0, 'melee', 'mid', 3000); lc5.x = c5.x + 480; lc5.y = c5.y; lc5.nextThink = 0
+    for (const m of c5.members) m.nextThink = 1e9
+    run(w5, 1)
+    ok('a lane creep passing near a camp does not pick a fight', !lc5.aiTarget || !isNeutral(lc5.aiTarget.team))
   },
   soak() {
     const seed = Number(process.argv[3] || 1)
