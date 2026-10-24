@@ -170,6 +170,13 @@ const ICONS: Record<string, string> = {
     <path d="M29 34l3 6 3-6z" fill="#3a2a1c"/>
     <path d="M22 50v-5M28 50v-6M34 50v-6M40 50v-5" stroke="#3a2a1c" stroke-width="2" stroke-linecap="round"/>
     <path d="M32 9v9" stroke="#b8324a" stroke-width="2.4" stroke-linecap="round"/>`,
+  // aegis of the immortal: a golden shield with a blue gem and wings
+  aegis: `<defs>${gold('ag')}<radialGradient id="ae" cx=".4" cy=".35" r=".7"><stop offset="0" stop-color="#e8fbff"/><stop offset="1" stop-color="#2a7ad8"/></radialGradient></defs>
+    <path d="M6 22c6-10 12-12 18-10l-4 12zM58 22c-6-10-12-12-18-10l4 12z" fill="#fff6d0" stroke="#b08a2a" stroke-width="1.5" stroke-linejoin="round"/>
+    <path d="M32 6l20 7v16c0 14-8 22-20 28C20 51 12 43 12 29V13z" fill="url(#ag)" stroke="#6a4208" stroke-width="2.4" stroke-linejoin="round"/>
+    <path d="M32 13l13 5v11c0 9-5 15-13 19-8-4-13-10-13-19V18z" fill="#7a4e0c" opacity=".55"/>
+    <path d="M32 21l7 8-7 10-7-10z" fill="url(#ae)" stroke="#143a7a" stroke-width="1.6" stroke-linejoin="round"/>
+    <path d="M32 21v18M25 29h14" stroke="#fff" stroke-width="1.2" opacity=".6"/>`,
   // blink dagger: glowing blue dagger with a swoosh
   blink: `<defs>${steel('ks')}<filter id="kg"><feGaussianBlur stdDeviation="2.5"/></filter></defs>
     <path d="M6 50c10-4 20-10 30-22" stroke="#6ab0ff" stroke-width="5" stroke-linecap="round" fill="none" opacity=".55" filter="url(#kg)"/>

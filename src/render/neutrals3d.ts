@@ -34,6 +34,10 @@ export function buildNeutral(sub: string, r: number): Model {
       shard(b, body, weapon, r)
       height = r * 2.4
       break
+    case 'roshan':
+      roshan(b, body, weapon, r)
+      height = r * 3.4
+      break
     default:
       wisp(b, body, weapon, r)
       height = r * 2.8
@@ -145,6 +149,47 @@ function shard(b: Builder, body: THREE.Group, weapon: THREE.Group, r: number) {
   b.mesh(sph(r * 0.08, 4, 4), crys, r * 0.5, r * 1.8, r * 0.15, body)
   weapon.position.set(r * 0.5, r * 1.0, r * 0.7)
   b.mesh(new THREE.DodecahedronGeometry(r * 0.35, 0), rock, 0, 0, 0, weapon)
+}
+
+/** Roshan: a huge horned stone beast with a mane of glowing crystals; the right fist is the weapon. */
+function roshan(b: Builder, body: THREE.Group, weapon: THREE.Group, r: number) {
+  const hide = b.m('#5a4a40')
+  const hide2 = b.m('#7a6454')
+  const dark = b.m('#2a201c')
+  const bone = b.m('#e6dcc0')
+  const ember = glow(b, '#ff7a30', '#ff4a10', 1.7)
+  const gold = glow(b, '#ffd24a', '#e09a10', 0.9)
+  // thick legs and feet
+  for (const z of [-0.5, 0.5]) {
+    b.mesh(cyl(r * 0.34, r * 0.42, r * 1.1, 7), dark, 0, r * 0.55, r * z, body)
+    b.mesh(box(r * 0.8, r * 0.22, r * 0.55), dark, r * 0.18, r * 0.11, r * z, body)
+  }
+  // hunched torso, belly plate and a crystal spine
+  const torso = b.mesh(cyl(r * 0.95, r * 0.8, r * 1.5, 8), hide, 0, r * 1.75, 0, body)
+  torso.rotation.z = -0.12
+  b.mesh(box(r * 0.18, r * 1.1, r * 1.1), hide2, r * 0.78, r * 1.6, 0, body)
+  for (let i = 0; i < 6; i++) b.mesh(cone(r * 0.14, r * (0.7 + (i % 2) * 0.25), 5), ember, -r * 0.55, r * (1.4 + i * 0.28), (i - 2.5) * r * 0.12, body).rotation.z = 1.2
+  // shoulders with spikes
+  for (const z of [-1, 1]) {
+    b.mesh(sph(r * 0.52, 8, 7), hide2, 0, r * 2.45, z * r * 1.0, body)
+    b.mesh(cone(r * 0.16, r * 0.7, 5), bone, 0, r * 3.0, z * r * 1.05, body)
+  }
+  // head: heavy brow, glowing eyes, two long horns
+  b.mesh(sph(r * 0.58, 9, 8), hide, r * 0.35, r * 2.95, 0, body)
+  b.mesh(box(r * 0.5, r * 0.18, r * 0.95), dark, r * 0.7, r * 3.1, 0, body)
+  b.mesh(sph(r * 0.09, 5, 4), ember, r * 0.88, r * 3.0, -r * 0.24, body)
+  b.mesh(sph(r * 0.09, 5, 4), ember, r * 0.88, r * 3.0, r * 0.24, body)
+  b.mesh(box(r * 0.25, r * 0.16, r * 0.5), bone, r * 0.8, r * 2.68, 0, body)
+  for (const z of [-1, 1]) {
+    b.mesh(cone(r * 0.14, r * 1.1, 5), bone, r * 0.1, r * 3.55, z * r * 0.5, body).rotation.x = z * 0.55
+    b.mesh(cyl(r * 0.11, r * 0.11, r * 0.16, 6), gold, r * 0.1, r * 3.2, z * r * 0.36, body)
+  }
+  // left arm hangs, right arm swings: a boulder fist
+  b.mesh(cyl(r * 0.3, r * 0.36, r * 1.3, 6), hide, r * 0.1, r * 1.9, -r * 1.2, body)
+  b.mesh(new THREE.DodecahedronGeometry(r * 0.5, 0), dark, r * 0.1, r * 1.2, -r * 1.2, body)
+  weapon.position.set(r * 0.2, r * 2.3, r * 1.2)
+  b.mesh(cyl(r * 0.3, r * 0.36, r * 1.3, 6), hide, 0, -r * 0.3, 0, weapon)
+  b.mesh(new THREE.DodecahedronGeometry(r * 0.62, 0), dark, 0, -r * 1.05, 0, weapon)
 }
 
 function wisp(b: Builder, body: THREE.Group, weapon: THREE.Group, r: number) {

@@ -150,6 +150,14 @@ export class Sfx {
         ;[440, 554, 659, 880].forEach((f, i) => this.tone(f, f * 1.02, 0.16, 'triangle', 0.2 * v, i * 0.06))
         this.noise(0.3, 0.08 * v, 5000, 0, 'highpass')
         break
+      case 'buyback':
+        ;[523, 784, 1047, 1319].forEach((f, i) => this.tone(f, f, 0.16, 'triangle', 0.2 * v, i * 0.06))
+        this.tone(1760, 1760, 0.14, 'square', 0.1 * v, 0.28)
+        break
+      case 'glyph':
+        ;[880, 1175, 1568].forEach((f, i) => this.tone(f, f * 1.01, 0.5, 'sine', 0.16 * v, i * 0.08))
+        this.noise(0.5, 0.1 * v, 4500, 0, 'highpass')
+        break
       case 'delivery':
         this.tone(880, 880, 0.08, 'triangle', 0.16 * v)
         this.tone(1175, 1175, 0.14, 'triangle', 0.16 * v, 0.09)

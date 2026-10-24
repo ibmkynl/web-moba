@@ -375,9 +375,19 @@ export class Game {
       this.activateAbility(ai, false, false)
       return
     }
+    if (e.code === 'KeyB' && e.shiftKey) {
+      e.preventDefault()
+      this.pressBuyback()
+      return
+    }
     if (ii >= 0) {
       e.preventDefault()
       this.activateItem(ii, false)
+      return
+    }
+    if (e.code === 'KeyG' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault()
+      this.pressGlyph()
       return
     }
     if (e.code === 'KeyT' && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -541,6 +551,16 @@ export class Game {
   }
 
   /** T key / teleport slot: start choosing a destination (a second press goes to your ancient). */
+  pressGlyph() {
+    const err = this.api.glyph()
+    if (err) this.hud.toast(err)
+  }
+
+  pressBuyback() {
+    const err = this.api.buyback()
+    if (err) this.hud.toast(err)
+  }
+
   pressTeleport() {
     const p = this.player
     const w = this.world

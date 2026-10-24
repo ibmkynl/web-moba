@@ -3656,3 +3656,327 @@ kbd {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ======================================================================
+   Dota-style HUD layout: top-left menu row + K/D/A, ultimate markers, net info top right,
+   buffs above the abilities (bars under them), glyph beside the minimap, stash and buyback
+   ====================================================================== */
+#menu {
+  display: block;
+}
+#menu .mrow {
+  display: flex;
+  gap: 6px;
+}
+#menu .mrow button {
+  width: 34px;
+  height: 34px;
+  font-size: 17px;
+}
+#menu .mpop {
+  position: absolute;
+  top: 40px;
+  left: 0;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: linear-gradient(180deg, #1c1f25, #0d0e11);
+  border: 1px solid var(--gold2);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.85);
+}
+#menu .mpop button {
+  width: auto;
+  height: 32px;
+  border-radius: 0;
+  border: 1px solid transparent;
+  background: none;
+  box-shadow: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  font-size: 16px;
+  text-align: left;
+  color: #e8e0c8;
+}
+#menu .mpop button i {
+  font-style: normal;
+  width: 18px;
+  text-align: center;
+  color: var(--gold3);
+}
+#menu .mpop button kbd {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 13px;
+}
+#menu .mpop button:hover {
+  background: rgba(240, 213, 138, 0.12);
+  border-color: #5a4d2a;
+}
+#menu .mpop button.on i {
+  color: #6aff8a;
+}
+#menu .mpop button.muted i {
+  color: #ff6a5a;
+}
+#kda {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-family: var(--cond);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  text-shadow: 0 1px 3px #000, 0 0 6px #000;
+  pointer-events: none;
+}
+#kda b {
+  color: #fff;
+  margin-left: 4px;
+}
+#netinfo {
+  position: fixed;
+  top: 8px;
+  right: 10px;
+  display: flex;
+  gap: 12px;
+  padding: 3px 10px;
+  font-family: var(--cond);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 1px;
+  color: var(--muted);
+  background: rgba(8, 9, 11, 0.55);
+  border: 1px solid #3a3018;
+  pointer-events: none;
+}
+#netinfo .ping-live {
+  position: static;
+}
+#clock .ping-live {
+  display: none;
+}
+.hslot .ult {
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  width: 11px;
+  height: 11px;
+  margin-left: -5px;
+  transform: rotate(45deg);
+  background: #ffd24a;
+  border: 1px solid #5a3a08;
+  box-shadow: 0 0 8px rgba(255, 210, 74, 0.9);
+  display: none;
+  z-index: 3;
+}
+.hslot .ult.on {
+  display: block;
+}
+
+/* the centre panel: abilities first, health / mana / experience bars underneath */
+.center .stats {
+  position: relative;
+  width: 92px;
+  font-size: 15px;
+}
+.center .stats .statbtn {
+  margin-top: 8px;
+  padding: 2px 0;
+  justify-content: center;
+  border: 1px solid #5a4a22;
+  background: #14161b;
+  color: var(--gold3);
+  font-size: 13px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  cursor: default;
+}
+.center .stats .statmore {
+  display: none;
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  width: 160px;
+  padding: 8px 12px;
+  z-index: 20;
+}
+.center .stats:hover .statmore {
+  display: block;
+}
+#buffs {
+  position: absolute;
+  left: 0;
+  top: -34px;
+  display: flex;
+  gap: 4px;
+  pointer-events: none;
+}
+.center .mid {
+  position: relative;
+}
+.buff {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--c, #c8b878);
+  background: radial-gradient(circle at 35% 30%, #2f333b, #101216);
+  box-shadow: 0 0 6px #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--cond);
+  font-weight: 800;
+  font-size: 13px;
+  color: #fff;
+}
+.buff i {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  padding: 0 3px;
+  font-style: normal;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.85);
+  color: var(--gold3);
+}
+.center .bar.hp {
+  margin-top: 6px;
+}
+
+/* glyph of fortification, beside the minimap */
+.mmside {
+  position: fixed;
+  left: calc(222px * var(--ui-s, 1));
+  bottom: calc(14px * var(--ui-s, 1));
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mmside button {
+  pointer-events: auto;
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid #5a4d2a;
+  background: radial-gradient(circle at 35% 30%, #34506a, #101820);
+  color: #bfe8ff;
+  cursor: pointer;
+  box-shadow: 0 2px 6px #000, 0 0 10px rgba(120, 200, 255, 0.35);
+}
+.mmside button .gl-ic {
+  width: 26px;
+  height: 26px;
+}
+.mmside button kbd {
+  position: absolute;
+  left: -2px;
+  top: -4px;
+  font: 800 12px var(--cond);
+  color: var(--gold3);
+  background: rgba(0, 0, 0, 0.8);
+  padding: 0 3px;
+}
+.mmside button .gl-cd {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.7);
+  font: 800 16px var(--cond);
+  color: #fff;
+}
+.mmside button.cd {
+  filter: grayscale(0.7);
+}
+.mmside button.cd .gl-cd {
+  display: flex;
+}
+.mmside button:hover {
+  border-color: var(--gold3);
+}
+
+/* stash strip (items waiting for the courier) and the quick-buy teleport scroll */
+#stash {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+  padding: 3px 6px;
+  background: #0c0d10;
+  border: 1px solid #3a3018;
+}
+#stash .st-l {
+  font: 700 12px var(--cond);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 4px;
+}
+#stash .st-i svg {
+  width: 26px;
+  height: 26px;
+  display: block;
+}
+.tpslot .tpbuy {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: rgba(0, 0, 0, 0.75);
+  color: var(--gold3);
+  font: 800 15px var(--cond);
+  line-height: 18px;
+  cursor: pointer;
+}
+.tpslot .tpbuy:hover {
+  color: #fff;
+  background: #3a3018;
+}
+
+/* respawn screen: countdown, the gold the death cost, and the buyback button */
+#respawn {
+  top: 24%;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+#respawn .rs-l {
+  font-family: var(--cond);
+  font-size: 22px;
+  color: #ffd24a;
+}
+#respawn #b-buyback {
+  margin-top: 10px;
+  pointer-events: auto;
+  padding: 8px 22px;
+  font: 800 22px var(--cond);
+  letter-spacing: 1px;
+  color: #ffe9a8;
+  background: linear-gradient(180deg, #4a3d1f, #1c1608);
+  border: 1px solid var(--gold3);
+  cursor: pointer;
+  box-shadow: 0 4px 16px #000;
+}
+#respawn #b-buyback:disabled {
+  color: var(--muted);
+  border-color: #4a3d1f;
+  cursor: default;
+}
+#respawn:not(.on) #b-buyback {
+  pointer-events: none;
+}

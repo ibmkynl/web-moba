@@ -761,7 +761,7 @@ export class Renderer3D {
         const col = RUNE_INFO[r.kind].color
         g = new THREE.Group()
         const gem = new THREE.Mesh(
-          r.kind === 'bounty' ? new THREE.DodecahedronGeometry(30) : new THREE.OctahedronGeometry(36),
+          r.kind === 'bounty' ? new THREE.DodecahedronGeometry(30) : r.kind === 'aegis' ? new THREE.IcosahedronGeometry(42) : new THREE.OctahedronGeometry(36),
           new THREE.MeshStandardMaterial({ color: col, emissive: new THREE.Color(col), emissiveIntensity: 1.3, roughness: 0.25, flatShading: true }),
         )
         gem.position.y = 95
@@ -1061,9 +1061,10 @@ export class Renderer3D {
       c.textBaseline = 'middle'
       c.lineWidth = 4
       c.strokeStyle = 'rgba(0,0,0,0.85)'
-      c.strokeText(info.name + ' Rune', sp.x, sp.y)
+      const label = r.kind === 'aegis' ? info.name : info.name + ' Rune'
+      c.strokeText(label, sp.x, sp.y)
       c.fillStyle = info.color
-      c.fillText(info.name + ' Rune', sp.x, sp.y)
+      c.fillText(label, sp.x, sp.y)
     }
 
     // floating text

@@ -61,7 +61,7 @@ export class Hud {
   private e: Record<string, HTMLElement> = {}
   private abil: HTMLElement[] = []
   private items: HTMLElement[] = []
-  private slots: { u: Unit; el: HTMLElement; hp: HTMLElement; mp: HTMLElement; timer: HTMLElement; lv: HTMLElement }[] = []
+  private slots: { u: Unit; el: HTMLElement; hp: HTMLElement; mp: HTMLElement; timer: HTMLElement; lv: HTMLElement; ult: HTMLElement }[] = []
   private mm!: HTMLCanvasElement
   private mmc!: CanvasRenderingContext2D
   private mmDrag = false
@@ -95,28 +95,43 @@ export class Hud {
           <div class="score"><span class="rs">0</span><span class="time">00:00</span><span class="ds">0</span></div>
           <div class="dn"><i></i><span>Day</span></div>
           <div class="rt">Rune <b>2:00</b></div>
-          ${this.g.net ? '<div class="ping-live" title="Round trip to the host">— ms</div>' : ''}
         </div>
         <div class="team-row" id="dire-row"></div>
       </div>
+      <div id="netinfo" class="ui"><span class="fps">-- FPS</span>${this.g.net ? '<span class="ping-live" title="Round trip to the host">— ms</span>' : ''}</div>
       <div id="menu" class="ui">
-        <button id="b-pause" title="Pause (P)">❚❚</button>
-        <button id="b-cam" title="Camera lock (L)">⌖</button>
-        <button id="b-quick" title="Quick cast (M)">⚡</button>
-        <button id="b-stats" title="Stats (hold Tab)">▤</button>
-        <button id="b-sound" title="Sound on/off">♪</button>
-        <button id="b-gfx" title="Graphics quality">◐</button>
-        <button id="b-help" title="Controls">?</button>
-        ${this.g.net ? '' : '<button id="b-test" title="Test: max level + 20000 gold (single player only)">★</button>'}
-        <button id="b-quit" title="Quit match (Esc)">✕</button>
+        <div class="mrow">
+          <button id="b-main" title="Menu">☰</button>
+          <button id="b-settings" title="Settings">⚙</button>
+          <button id="b-stats" title="Scoreboard (hold Tab)">▤</button>
+        </div>
+        <div class="mpop hidden" id="pop-main">
+          <button id="b-pause" title="Pause (P)"><i>❚❚</i>Pause <kbd>P</kbd></button>
+          <button id="b-help" title="Controls"><i>?</i>Controls</button>
+          ${this.g.net ? '' : '<button id="b-test" title="Test: max level + 20000 gold (single player only)"><i>★</i>Test boost</button>'}
+          <button id="b-quit" title="Quit match (Esc)"><i>✕</i>Quit match <kbd>Esc</kbd></button>
+        </div>
+        <div class="mpop hidden" id="pop-settings">
+          <button id="b-cam" title="Camera lock (L)"><i>⌖</i>Camera lock <kbd>L</kbd></button>
+          <button id="b-quick" title="Quick cast (M)"><i>⚡</i>Quick cast <kbd>M</kbd></button>
+          <button id="b-sound" title="Sound on/off"><i>♪</i>Sound</button>
+          <button id="b-gfx" title="Graphics quality"><i>◐</i>Graphics</button>
+        </div>
+        <div id="kda"><span>K/D/A <b class="kda-v">0/0/0</b></span><span>LH/DN <b class="lh-v">0/0</b></span></div>
       </div>
       <div id="unitinfo" class="frame hidden"></div>
       <div id="announce"></div>
       <div id="feed"></div>
       <div id="toast"></div>
-      <div id="respawn"></div>
+      <div id="respawn" class="ui"><div class="rs-t"></div><div class="rs-l"></div><button id="b-buyback" title="Pay gold to respawn at once (Shift+B)"></button></div>
       <div id="bottom">
         <div class="frame mmframe ui"><canvas id="minimap" width="${MM}" height="${MM}"></canvas></div>
+        <div class="mmside ui">
+          <button id="b-glyph" title="Glyph of Fortification (G): your buildings are invulnerable for 7 seconds">
+            <svg viewBox="0 0 32 32" class="gl-ic"><path d="M16 3l11 4v9c0 7-5 11-11 13C10 27 5 23 5 16V7z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><path d="M16 9v13M10 14h12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+            <span class="gl-cd"></span><kbd>G</kbd>
+          </button>
+        </div>
         <div class="center frame ui">
           <div class="hero-card">
             <div class="portrait"><span class="pl"></span><span class="lvl">1</span></div>
@@ -126,13 +141,14 @@ export class Hud {
             <div><em>Damage</em><b id="s-dmg"></b></div>
             <div><em>Armor</em><b id="s-arm"></b></div>
             <div><em>Move</em><b id="s-ms"></b></div>
-            <div><em>Range</em><b id="s-rng"></b></div>
-            <div class="attrs"><span class="a-str">S</span><b id="s-str"></b><span class="a-agi">A</span><b id="s-agi"></b><span class="a-int">I</span><b id="s-int"></b></div>
+            <div class="statbtn">Hero stats ▴</div>
+            <div class="statmore frame">
+              <div><em>Range</em><b id="s-rng"></b></div>
+              <div class="attrs"><span class="a-str">S</span><b id="s-str"></b><span class="a-agi">A</span><b id="s-agi"></b><span class="a-int">I</span><b id="s-int"></b></div>
+            </div>
           </div>
           <div class="mid">
-            <div class="bar hp"><div class="fill"></div><span class="txt"></span><span class="reg"></span></div>
-            <div class="bar mp"><div class="fill"></div><span class="txt"></span><span class="reg"></span></div>
-            <div class="bar xp" title="Experience to next level"><div class="fill"></div><span class="txt"></span></div>
+            <div id="buffs"></div>
             <div class="abilities">${[0, 1, 2, 3, 4]
               .map(
                 (i) => `<div class="abil" data-i="${i}">
@@ -143,6 +159,9 @@ export class Hud {
                 </div>`,
               )
               .join('')}</div>
+            <div class="bar hp"><div class="fill"></div><span class="txt"></span><span class="reg"></span></div>
+            <div class="bar mp"><div class="fill"></div><span class="txt"></span><span class="reg"></span></div>
+            <div class="bar xp" title="Experience to next level"><div class="fill"></div><span class="txt"></span></div>
           </div>
 
         </div>
@@ -152,7 +171,8 @@ export class Hud {
             <button class="recbuy" id="rec-buy" title="Buy the recommended item"><span class="rn">Recommended</span><b class="rp"></b></button>
             <label class="recauto" title="Auto purchase: buy the recommended item as soon as you have enough gold"><input type="checkbox" id="rec-auto"><span>Auto</span></label>
           </div>
-          <div class="tpslot" id="tpslot" title="Teleportation Scroll (T): channel 3s to a friendly tower. Max 5."><span class="glyph"></span><div class="cd"></div><span class="chg">0</span><span class="key">T</span></div>
+          <div id="stash" class="hidden"></div>
+          <div class="tpslot" id="tpslot" title="Teleportation Scroll (T): channel 3s to a friendly tower. Max 5."><span class="glyph"></span><div class="cd"></div><span class="chg">0</span><span class="key">T</span><button class="tpbuy" id="tpbuy" title="Buy a Teleportation Scroll (100 gold)">+</button></div>
           <div class="inv">${[0, 1, 2, 3, 4, 5]
             .map((i) => `<div class="item" data-i="${i}"><span class="glyph"></span><div class="cd"></div><span class="chg"></span><span class="key">${ITEM_KEYS[i]}</span></div>`)
             .join('')}
@@ -224,11 +244,11 @@ export class Hud {
         const d = u.h!.def
         const el = document.createElement('div')
         el.className = `hslot t${team}${u === p ? ' me' : ''}`
-        el.innerHTML = `<div class="port" style="${portraitStyle(d)}"><i class="lv">1</i><b class="timer"></b></div><div class="mini hp"><div></div></div><div class="mini mp"><div></div></div>`
+        el.innerHTML = `<div class="port" style="${portraitStyle(d)}"><i class="lv">1</i><b class="timer"></b><i class="ult" title="Ultimate ready"></i></div><div class="mini hp"><div></div></div><div class="mini mp"><div></div></div>`
         row.appendChild(el)
         this.slots.push({
           u, el, hp: el.querySelector('.hp div') as HTMLElement, mp: el.querySelector('.mp div') as HTMLElement,
-          timer: el.querySelector('.timer') as HTMLElement, lv: el.querySelector('.lv') as HTMLElement,
+          timer: el.querySelector('.timer') as HTMLElement, lv: el.querySelector('.lv') as HTMLElement, ult: el.querySelector('.ult') as HTMLElement,
         })
         el.style.cursor = 'pointer'
         el.addEventListener('mousedown', (ev) => {
@@ -272,7 +292,31 @@ export class Hud {
       el.addEventListener('mouseleave', () => this.hideTip())
     })
 
-    // menu buttons
+    // menu buttons: Menu and Settings open small lists (like Dota's top-left buttons), the third one is the scoreboard
+    const pops = [$('#pop-main'), $('#pop-settings')]
+    const togglePop = (pop: HTMLElement) => {
+      const open = pop.classList.contains('hidden')
+      pops.forEach((x) => x.classList.add('hidden'))
+      if (open) pop.classList.remove('hidden')
+    }
+    $('#b-main').onclick = () => togglePop(pops[0])
+    $('#b-settings').onclick = () => togglePop(pops[1])
+    pops.forEach((pop) => pop.addEventListener('click', () => pop.classList.add('hidden')))
+    window.addEventListener('mousedown', (ev) => {
+      if (!(ev.target as HTMLElement).closest?.('#menu')) pops.forEach((x) => x.classList.add('hidden'))
+    })
+    $('#b-glyph').onclick = () => this.g.pressGlyph()
+    const bb = $('#b-buyback')
+    bb.addEventListener('mousedown', (ev) => ev.stopPropagation())
+    bb.onclick = () => this.g.pressBuyback()
+    const tpb = $('#tpbuy')
+    tpb.addEventListener('mousedown', (ev) => ev.stopPropagation())
+    tpb.onclick = (ev) => {
+      ev.stopPropagation()
+      const err = this.g.api.buy('tp')
+      if (err) this.toast(err)
+      else this.g.sfx.play('gold')
+    }
     $('#b-pause').onclick = () => this.g.togglePause()
     $('#b-cam').onclick = () => this.g.toggleCamLock()
     $('#b-quick').onclick = () => this.g.toggleQuickCast()
@@ -699,7 +743,7 @@ export class Hud {
     const hpTxt = `${Math.ceil(u.hp)} / ${Math.round(s.maxHp)}`
     const html = `<div class="ui-name" style="color:${col}">${name}</div>
       <div class="ui-bar"><i style="width:${(u.hp / s.maxHp) * 100}%;background:${mine ? '#3fae3a' : '#c8402e'}"></i><span>${hpTxt}</span></div>
-      <div class="ui-st"><span>Dmg <b>${Math.round(s.dmg)}</b></span><span>Armor <b>${fmt(s.armor)}</b></span><span>Move <b>${Math.round(s.ms)}</b></span>${u.locked ? '<span class="lk">Protected: destroy the building in front first</span>' : u.isInvulnerable() && u.kind !== 'courier' ? '<span class="lk">Invulnerable</span>' : ''}</div>
+      <div class="ui-st"><span>Dmg <b>${Math.round(s.dmg)}</b></span><span>Armor <b>${fmt(s.armor)}</b></span><span>Move <b>${Math.round(s.ms)}</b></span>${u.locked ? '<span class="lk">Protected: destroy the building in front first</span>' : u.isInvulnerable() && u.kind !== 'courier' ? '<span class="lk">Invulnerable</span>' : u.bdp ? '<span class="lk">Backdoor protected: takes half damage and heals while no enemy creeps are near</span>' : ''}</div>
       ${hint ? `<div class="ui-hint">${hint}</div>` : ''}`
     if (html !== this.unitInfoHtml) {
       this.unitInfoHtml = html
@@ -722,10 +766,45 @@ export class Hud {
     el.className = 'ping-live ' + (ms === undefined ? '' : ms < 80 ? 'good' : ms < 160 ? 'ok' : 'bad')
   }
 
+  private fps = 60
+  private fpsShown = 0
+  private buffKey = ''
+  private stashKey = ''
+
+  /** Icons for the local hero's timed buffs (runes, salve, spell effects), with the seconds left. */
+  private updateBuffs(p: Unit) {
+    const w = this.g.view
+    const list = p.dead ? [] : p.buffs.filter((b) => b.label && b.expires > w.time)
+    const key = list.map((b) => b.id + Math.ceil(b.expires - w.time)).join('|')
+    if (key === this.buffKey) return
+    this.buffKey = key
+    ;(q(this.root, '#buffs') as HTMLElement).innerHTML = list
+      .slice(0, 10)
+      .map((b) => {
+        const left = b.expires - w.time
+        const t = left < 600 ? String(Math.ceil(left)) : ''
+        return `<div class="buff" style="--c:${b.color || '#c8b878'}" title="${esc(b.label!)}"><span>${esc(b.label!.replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase())}</span><i>${t}</i></div>`
+      })
+      .join('')
+  }
+
+  /** Items bought away from the fountain wait in the stash until the courier brings them. */
+  private updateStash(p: Unit) {
+    const w = this.g.view
+    const list = w.pendingFor(p)
+    const key = list.map((d) => d.id).join(',')
+    if (key === this.stashKey) return
+    this.stashKey = key
+    const el = q(this.root, '#stash') as HTMLElement
+    el.classList.toggle('hidden', !list.length)
+    el.innerHTML = list.length ? `<span class="st-l">Stash</span>${list.map((d) => `<div class="st-i" title="${esc(d.name)} (waiting for the courier)">${itemIcon(d.id)}</div>`).join('')}` : ''
+  }
+
   update(dt: number) {
     const w = this.g.view
     const p = w.player
     const hs = p.h!
+    if (dt > 0) this.fps += (1 / dt - this.fps) * 0.05
     // minimap every frame
     this.g.renderer.drawMinimap(this.mmc, MM)
     // teleport channel progress (centre of the screen)
@@ -744,6 +823,14 @@ export class Hud {
     }
     if (this.acc < 0.05) return
     this.acc = 0
+
+    // network info (top right) and the K/D/A + last hits readout (top left)
+    if (w.time - this.fpsShown >= 0.5 || w.time < this.fpsShown) {
+      this.fpsShown = w.time
+      setText(q(this.root, '#netinfo .fps') as HTMLElement, `${Math.round(this.fps)} FPS`)
+    }
+    setText(q(this.root, '.kda-v') as HTMLElement, `${hs.kills}/${hs.deaths}/${hs.assists}`)
+    setText(q(this.root, '.lh-v') as HTMLElement, `${hs.lh}/${hs.dn}`)
 
     // top bar
     setText(this.e.rs, String(w.kills[0]))
@@ -764,7 +851,11 @@ export class Hud {
       setText(s.timer, s.u.dead ? String(Math.max(0, Math.ceil(hsx.respawnAt - w.time))) : '')
       setStyle(s.hp, 'width', (visible && !s.u.dead ? (s.u.hp / s.u.st.maxHp) * 100 : 0) + '%')
       setStyle(s.mp, 'width', (s.u.team === p.team && !s.u.dead ? (s.u.mana / Math.max(1, s.u.st.maxMana)) * 100 : 0) + '%')
+      // allies show a marker when their ultimate can be cast (enemy cooldowns are not known)
+      const ult = s.u.team === p.team && !s.u.dead && hsx.abilities.some((a) => a.def.ult && a.level > 0 && w.time >= a.cdUntil && s.u.mana >= (a.def.mana[a.level - 1] || 0))
+      s.ult.classList.toggle('on', ult)
     }
+    this.updateBuffs(p)
 
     // bottom: stats + bars
     const st = p.st
@@ -871,7 +962,7 @@ export class Hud {
         gl.innerHTML = itemIcon(it.def.id)
         ;(gl as any).__t = undefined // the icon replaced whatever setText last wrote
       }
-      setText(q(el, '.chg') as HTMLElement, it.def.consumable ? String(it.charges) : '')
+      setText(q(el, '.chg') as HTMLElement, it.def.consumable ? String(it.charges) : it.expiresAt ? mmss(Math.max(0, it.expiresAt - w.time)).replace(/^0/, '') : '')
       const rem = Math.max(0, it.cdUntil - w.time)
       setStyle(q(el, '.cd') as HTMLElement, 'background', rem > 0 ? `conic-gradient(rgba(0,0,0,0.72) ${(rem / (it.def.cd || 15)) * 360}deg, transparent 0deg)` : 'none')
     })
@@ -894,9 +985,25 @@ export class Hud {
       }
     }
 
-    // respawn
+    // glyph button
+    {
+      const left = w.glyphReadyAt[p.team] - w.time
+      const btn = q(this.root, '#b-glyph') as HTMLElement
+      btn.classList.toggle('cd', left > 0)
+      setText(q(btn, '.gl-cd') as HTMLElement, left > 0 ? String(Math.ceil(left)) : '')
+    }
+    this.updateStash(p)
+
+    // respawn: countdown, the gold the death cost, and the buyback button
     if (p.dead) {
-      setText(this.e.respawn, `Respawning in ${Math.max(0, Math.ceil(hs.respawnAt - w.time))}`)
+      setText(q(this.e.respawn, '.rs-t') as HTMLElement, `Respawning in ${Math.max(0, Math.ceil(hs.respawnAt - w.time))}`)
+      setText(q(this.e.respawn, '.rs-l') as HTMLElement, hs.goldLost > 0 ? `You lost ${hs.goldLost} gold` : '')
+      const btn = q(this.e.respawn, '#b-buyback') as HTMLButtonElement
+      const cost = w.buybackCost(p)
+      const wait = hs.buybackReadyAt - w.time
+      const need = cost - Math.floor(hs.gold)
+      btn.disabled = wait > 0 || need > 0
+      setText(btn, wait > 0 ? `Buyback ready in ${mmss(wait).replace(/^0/, '')}` : need > 0 ? `Buyback ${cost} gold (${need} more needed)` : `Buyback · ${cost} gold  [Shift+B]`)
       this.e.respawn.classList.add('on')
     } else this.e.respawn.classList.remove('on')
 

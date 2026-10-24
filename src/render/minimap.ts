@@ -139,7 +139,7 @@ export class Minimap {
       c.save()
       c.translate(r.x * s, r.y * s)
       c.rotate(Math.PI / 4)
-      c.fillStyle = r.kind === 'bounty' ? '#ffd24a' : '#ffffff'
+      c.fillStyle = r.kind === 'bounty' || r.kind === 'aegis' ? '#ffd24a' : '#ffffff'
       c.fillRect(-4, -4, 8, 8)
       c.lineWidth = 1.5
       c.strokeStyle = '#000'
